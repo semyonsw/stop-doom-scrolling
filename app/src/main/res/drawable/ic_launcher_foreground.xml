@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- A shield with a slash through it. Drawn in the 108dp adaptive-icon space. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:fillColor="#7BD88F"
+        android:pathData="M54,28 L74,35 L74,55 C74,68 65,76 54,80 C43,76 34,68 34,55 L34,35 Z" />
+    <path
+        android:fillColor="#1B1C22"
+        android:pathData="M38,30 L44,26 L74,72 L68,76 Z" />
+</vector>

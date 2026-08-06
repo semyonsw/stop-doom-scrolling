@@ -1,0 +1,14 @@
+# Substrings matched against the browser's address/search bar text.
+#
+# This is the layer that catches a search typed into the omnibox, which DNS
+# filtering never sees because the query goes to a search engine over HTTPS.
+#
+# Keep this list short. Every entry is a substring match against whatever is in
+# the URL bar, so an over-broad word will block ordinary browsing and you will
+# end up switching the whole feature off - which is worse than a few misses.
+
+porn
+xxx
+hentai
+nsfw
+camgirl

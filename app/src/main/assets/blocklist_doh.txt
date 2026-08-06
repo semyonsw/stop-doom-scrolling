@@ -1,0 +1,31 @@
+# DNS-over-HTTPS / DNS-over-TLS resolver hostnames.
+#
+# Blocking these is what stops a browser with Secure DNS switched on from
+# resolving names outside the tunnel. It is not airtight - a client that
+# hardcodes a resolver IP skips the lookup entirely - which is exactly why the
+# browser URL check exists as a second layer.
+#
+# Note this does NOT cover Android's system-wide Private DNS setting, which
+# bypasses the tunnel completely. The watchdog warns when that is switched on.
+
+cloudflare-dns.com
+mozilla.cloudflare-dns.com
+one.one.one.one
+dns.google
+dns64.dns.google
+dns.quad9.net
+dns9.quad9.net
+dns10.quad9.net
+dns11.quad9.net
+doh.opendns.com
+doh.familyshield.opendns.com
+dns.nextdns.io
+doh.cleanbrowsing.org
+doh.dns.sb
+dns.adguard.com
+dns-unfiltered.adguard.com
+doh.mullvad.net
+dns.controld.com
+freedns.controld.com
+doh.libredns.gr
+dnsforge.de

@@ -1,0 +1,136 @@
+[
+  {
+    "id": "yt-shorts",
+    "label": "YouTube Shorts",
+    "enabled": true,
+    "packages": ["com.google.android.youtube"],
+    "match": {
+      "anyViewIdContains": [
+        "reel_recycler",
+        "reel_player_page",
+        "reel_watch_fragment",
+        "shorts_container",
+        "shorts_player"
+      ],
+      "minMatchingNodes": 1,
+      "minAreaFraction": 0.35
+    },
+    "action": "OVERLAY_THEN_BACK",
+    "sessionBudgetSeconds": 300,
+    "dailyBudgetSeconds": 900,
+    "frictionSeconds": 10,
+    "reblockCooldownSeconds": 30,
+    "note": "These view ids are best-effort guesses. Open Shorts, hit Dump on the Debug screen, and replace this list with what the dump actually shows for your YouTube build."
+  },
+  {
+    "id": "yt-shorts-desc-fallback",
+    "label": "YouTube Shorts (description fallback)",
+    "enabled": false,
+    "packages": ["com.google.android.youtube"],
+    "match": {
+      "anyContentDescription": ["Shorts"],
+      "minMatchingNodes": 1,
+      "minAreaFraction": 0.5
+    },
+    "action": "OVERLAY_THEN_BACK",
+    "sessionBudgetSeconds": 300,
+    "dailyBudgetSeconds": 900,
+    "note": "Off by default and deliberately so: the word Shorts also appears on the bottom-nav tab button, which is present on the home feed. minAreaFraction 0.5 is what stops that, but verify against a dump of the home screen before enabling, or you will block all of YouTube."
+  },
+  {
+    "id": "ig-reels",
+    "label": "Instagram Reels",
+    "enabled": true,
+    "packages": ["com.instagram.android"],
+    "match": {
+      "anyViewIdContains": [
+        "clips_viewer_view_pager",
+        "clips_viewer",
+        "reel_viewer",
+        "clips_video_container"
+      ],
+      "minMatchingNodes": 1,
+      "minAreaFraction": 0.35
+    },
+    "action": "OVERLAY_THEN_BACK",
+    "sessionBudgetSeconds": 300,
+    "dailyBudgetSeconds": 900,
+    "frictionSeconds": 10,
+    "reblockCooldownSeconds": 30,
+    "note": "Instagram renames these more often than YouTube does. Expect to re-dump after app updates."
+  },
+  {
+    "id": "fb-reels",
+    "label": "Facebook Reels",
+    "enabled": false,
+    "packages": ["com.facebook.katana"],
+    "match": {
+      "anyContentDescription": ["Reels", "Reel"],
+      "anyText": ["Reels"],
+      "minMatchingNodes": 2,
+      "minAreaFraction": 0.4
+    },
+    "action": "OVERLAY_THEN_BACK",
+    "sessionBudgetSeconds": 300,
+    "dailyBudgetSeconds": 600,
+    "note": "Facebook is Litho-rendered and mostly ships no resource ids, so there is nothing reliable to match on. This rule is a heuristic and starts disabled. If a dump confirms nothing usable, switch to the fb-whole-app rule below instead - a whole-app budget is the honest fallback."
+  },
+  {
+    "id": "fb-whole-app",
+    "label": "Facebook (whole app budget)",
+    "enabled": false,
+    "packages": ["com.facebook.katana"],
+    "wholeApp": true,
+    "action": "OVERLAY_THEN_BACK",
+    "sessionBudgetSeconds": 600,
+    "dailyBudgetSeconds": 1200,
+    "frictionSeconds": 10,
+    "note": "Fallback for when section detection inside Facebook proves unreliable."
+  },
+  {
+    "id": "tiktok",
+    "label": "TikTok",
+    "enabled": true,
+    "packages": ["com.zhiliaoapp.musically", "com.ss.android.ugc.trill"],
+    "wholeApp": true,
+    "action": "OVERLAY_THEN_BACK",
+    "sessionBudgetSeconds": 0,
+    "dailyBudgetSeconds": 0,
+    "frictionSeconds": 20,
+    "reblockCooldownSeconds": 60,
+    "note": "Whole app, zero budget: TikTok is nothing but the feed, so there is no section worth separating out. Zero budget means block on sight."
+  },
+  {
+    "id": "snapchat-spotlight",
+    "label": "Snapchat Spotlight",
+    "enabled": false,
+    "packages": ["com.snapchat.android"],
+    "match": {
+      "anyViewIdContains": ["spotlight"],
+      "minAreaFraction": 0.35
+    },
+    "action": "OVERLAY_THEN_BACK",
+    "sessionBudgetSeconds": 180,
+    "dailyBudgetSeconds": 600,
+    "note": "Enable only if you actually use Snapchat; unverified selectors."
+  },
+  {
+    "id": "yt-web-shorts",
+    "label": "YouTube Shorts in a browser",
+    "enabled": true,
+    "packages": [
+      "com.android.chrome",
+      "com.sec.android.app.sbrowser",
+      "org.mozilla.firefox"
+    ],
+    "match": {
+      "anyText": ["youtube.com/shorts", "m.youtube.com/shorts"],
+      "minMatchingNodes": 1
+    },
+    "action": "OVERLAY_THEN_BACK",
+    "sessionBudgetSeconds": 0,
+    "dailyBudgetSeconds": 0,
+    "frictionSeconds": 10,
+    "note": "Closes the obvious loophole of opening Shorts in a browser tab instead of the app. Matches the URL text in the omnibox."
+  }
+]

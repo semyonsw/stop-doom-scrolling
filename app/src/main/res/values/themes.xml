@@ -1,0 +1,12 @@
+<resources>
+    <!--
+      Compose supplies the real theming, so this only has to be a sane host: follow
+      the system light/dark setting and get out of the way. Framework DayNight has
+      no NoActionBar variant, hence the two explicit flags rather than a parent.
+    -->
+    <style name="Theme.DoomGuard" parent="android:Theme.DeviceDefault.DayNight">
+        <item name="android:windowActionBar">false</item>
+        <item name="android:windowNoTitle">true</item>
+        <item name="android:windowBackground">@android:color/transparent</item>
+    </style>
+</resources>

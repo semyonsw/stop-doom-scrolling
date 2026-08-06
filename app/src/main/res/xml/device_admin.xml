@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Deliberately minimal. The only reason this app is a device admin is that
+  an active admin cannot be uninstalled, which forces a deactivation step
+  before removal. No policies are declared beyond that.
+-->
+<device-admin xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-policies>
+        <force-lock />
+    </uses-policies>
+</device-admin>

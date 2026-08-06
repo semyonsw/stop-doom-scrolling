@@ -1,0 +1,35 @@
+# Seed adult-site blocklist.
+#
+# Deliberately short. A curated public list is far more complete than anything
+# hand-maintained here - import one from the Debug screen (hosts format or plain
+# domains both work). Good sources: StevenBlack's "porn" variant, or the
+# Blocklist Project's porn list.
+#
+# One entry covers all subdomains: "example.com" also blocks "www.example.com".
+# Lines starting with # are ignored. "0.0.0.0 domain" hosts syntax is accepted.
+
+pornhub.com
+xvideos.com
+xnxx.com
+xhamster.com
+redtube.com
+youporn.com
+tube8.com
+spankbang.com
+chaturbate.com
+stripchat.com
+bongacams.com
+livejasmin.com
+onlyfans.com
+fansly.com
+rule34.xxx
+e621.net
+nhentai.net
+hanime.tv
+motherless.com
+eporner.com
+txxx.com
+hqporner.com
+porntrex.com
+thumbzilla.com
+youjizz.com

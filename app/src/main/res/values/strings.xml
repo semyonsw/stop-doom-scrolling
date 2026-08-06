@@ -1,0 +1,9 @@
+<resources>
+    <string name="app_name">DoomGuard</string>
+    <string name="accessibility_service_label">DoomGuard blocker</string>
+    <string name="accessibility_service_description">Watches which app and which screen is in the foreground so DoomGuard can enforce your own limits on short-form feeds and blocked websites. Nothing is sent off the device.</string>
+    <string name="admin_label">DoomGuard uninstall lock</string>
+    <string name="admin_description">While active, DoomGuard cannot be uninstalled without first deactivating it here. This is the friction that stops an impulsive uninstall.</string>
+    <string name="notif_channel_vpn">DNS filter</string>
+    <string name="notif_channel_guard">Protection warnings</string>
+</resources>
