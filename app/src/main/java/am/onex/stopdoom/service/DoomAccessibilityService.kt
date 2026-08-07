@@ -8,6 +8,8 @@ import android.util.Log
 import android.view.accessibility.AccessibilityEvent
 import am.onex.stopdoom.App
 import am.onex.stopdoom.AppContainer
+import am.onex.stopdoom.R
+import am.onex.stopdoom.guard.SettingsGuard
 import am.onex.stopdoom.rules.BlockAction
 import am.onex.stopdoom.rules.BlockRule
 import am.onex.stopdoom.rules.ScreenSnapshot
@@ -28,16 +30,31 @@ class DoomAccessibilityService : AccessibilityService() {
 
     private val scanner = NodeScanner()
     private val dumpScanner = NodeScanner.forDumping()
+    private val settingsGuard = SettingsGuard()
 
     private lateinit var workerThread: HandlerThread
     private lateinit var worker: Handler
     private lateinit var main: Handler
 
+    private val appLabel: String by lazy { getString(R.string.app_name) }
+
     @Volatile
     private var lastScanAt = 0L
 
+    /** The target the budget clock is running against. Cleared the moment it blocks. */
     @Volatile
     private var currentRuleId: String? = null
+
+    /**
+     * What the most recent scan actually saw, which is a different question.
+     *
+     * [currentRuleId] is reset by a block so the next entry is logged as a fresh one,
+     * so it cannot answer "is the feed still up?" - and that is exactly what the Back
+     * loop has to keep asking. Holding the two separately is what stops the actuator
+     * from either giving up early or walking the user out to the launcher.
+     */
+    @Volatile
+    private var visibleTarget: String? = null
 
     private var tickScheduled = false
 
@@ -45,7 +62,7 @@ class DoomAccessibilityService : AccessibilityService() {
         super.onServiceConnected()
         container = (application as App).container
         main = Handler(mainLooper)
-        actuator = BlockActuator(this, main)
+        actuator = BlockActuator(GlobalActions.of(this), main)
 
         workerThread = HandlerThread("doomguard-scan").apply { start() }
         worker = Handler(workerThread.looper)
@@ -55,15 +72,20 @@ class DoomAccessibilityService : AccessibilityService() {
     }
 
     override fun onDestroy() {
-        actuator.cancel()
-        container.tracker.flushNow()
+        // The overlay lives in the application's window manager, so it would outlive
+        // this service and leave an undismissable screen behind if it were showing.
+        if (::container.isInitialized) {
+            if (::main.isInitialized) main.post { container.overlay.hideIfShowing() }
+            container.tracker.flushNow()
+            container.onAccessibilityServiceDisconnected()
+        }
+        if (::actuator.isInitialized) actuator.cancel()
         if (::workerThread.isInitialized) workerThread.quitSafely()
-        container.onAccessibilityServiceDisconnected()
         super.onDestroy()
     }
 
     override fun onInterrupt() {
-        actuator.cancel()
+        if (::actuator.isInitialized) actuator.cancel()
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
@@ -85,14 +107,19 @@ class DoomAccessibilityService : AccessibilityService() {
         val settings = container.settings.current
         if (settings.maintenanceActiveAt(now)) {
             clearActive()
+            // Maintenance is the one case where a block screen already on show is
+            // wrong, so this is the only path that takes it down early.
+            main.post { container.overlay.hideIfShowing() }
             return
         }
 
         val candidates = container.engine.candidatesFor(packageName)
         val isBrowser = settings.urlBarBlockingEnabled && UrlBarDetector.isBrowser(packageName)
         val wantsDump = container.dumper.isArmed(now)
+        val guardsSettings = settings.watchdogAggressive &&
+            packageName in SettingsGuard.SETTINGS_PACKAGES
 
-        if (candidates.isEmpty() && !isBrowser && !wantsDump) {
+        if (candidates.isEmpty() && !isBrowser && !wantsDump && !guardsSettings) {
             clearActive()
             return
         }
@@ -114,7 +141,7 @@ class DoomAccessibilityService : AccessibilityService() {
                 )
         }
 
-        val needsSnapshot = wantsDump || isBrowser ||
+        val needsSnapshot = wantsDump || isBrowser || guardsSettings ||
             (fastMatch == null && candidates.any { it.needsTreeWalk })
 
         val snapshot: ScreenSnapshot? = if (needsSnapshot) {
@@ -128,6 +155,8 @@ class DoomAccessibilityService : AccessibilityService() {
             container.dumper.dump(snapshot)
         }
 
+        if (guardsSettings && snapshot != null && guardOwnSettings(snapshot, now)) return
+
         if (isBrowser && snapshot != null && checkBrowser(snapshot, now)) return
 
         val matched = fastMatch
@@ -140,6 +169,19 @@ class DoomAccessibilityService : AccessibilityService() {
         }
 
         onTargetVisible(matched, now)
+    }
+
+    /** Returns true when the screen was bounced, so nothing else should run. */
+    private fun guardOwnSettings(snapshot: ScreenSnapshot, now: Long): Boolean {
+        val own = SettingsGuard.isOwnSettingsScreen(snapshot, appLabel)
+        if (!settingsGuard.shouldBounce(own)) return false
+
+        // No feed is on screen here, so nothing should still be counting against a
+        // budget or driving a Back sequence of its own.
+        clearActive()
+        container.usage.log(now, "settings_guard_bounce")
+        main.post { performGlobalAction(GLOBAL_ACTION_BACK) }
+        return true
     }
 
     /** Returns true when the browser check blocked, so section rules are skipped. */
@@ -159,6 +201,7 @@ class DoomAccessibilityService : AccessibilityService() {
         }
 
         container.usage.log(now, "web_blocked", detail = reason)
+        visibleTarget = WEB_TARGET
         main.post {
             container.overlay.show(
                 title = "Not this",
@@ -170,7 +213,7 @@ class DoomAccessibilityService : AccessibilityService() {
             )
             actuator.perform(
                 BlockAction.OVERLAY_THEN_BACK,
-                stillMatching = { true },
+                stillMatching = { visibleTarget == WEB_TARGET },
                 onFinished = {},
             )
         }
@@ -178,6 +221,7 @@ class DoomAccessibilityService : AccessibilityService() {
     }
 
     private fun onTargetVisible(rule: BlockRule, now: Long) {
+        visibleTarget = rule.id
         if (currentRuleId != rule.id) {
             currentRuleId = rule.id
             container.tracker.onTargetChanged(rule.id)
@@ -221,18 +265,26 @@ class DoomAccessibilityService : AccessibilityService() {
             }
             actuator.perform(
                 rule.action,
-                stillMatching = { currentRuleId == null },
+                stillMatching = { visibleTarget == rule.id },
             )
         }
     }
 
+    /**
+     * Nothing worth blocking is on screen.
+     *
+     * Note what this does not do: take the block screen down. Backing out of the feed
+     * lands here within a couple of hundred milliseconds, so hiding here would flash
+     * the screen away before it could be read - and the enforced pause is the part
+     * that actually works. It goes when it is dismissed, or on its own timer.
+     */
     private fun clearActive() {
+        visibleTarget = null
         if (currentRuleId != null) {
             currentRuleId = null
             container.tracker.onTargetChanged(null)
             container.publishRemaining(null, 0)
         }
-        main.post { container.overlay.hideIfShowing() }
     }
 
     /** One-second budget tick, alive only while a target is on screen. */
@@ -266,6 +318,9 @@ class DoomAccessibilityService : AccessibilityService() {
         const val TAG = "DoomGuard/A11y"
         const val SCAN_THROTTLE_MS = 200L
         const val WEB_BLOCK_FRICTION_SECONDS = 8
+
+        /** Stands in for a rule id in [visibleTarget]; no rule can be called this. */
+        const val WEB_TARGET = " web"
     }
 }
 

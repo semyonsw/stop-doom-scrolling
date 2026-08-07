@@ -1,8 +1,24 @@
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.kotlin.serialization)
+}
+
+/**
+ * Release signing material, kept out of the repository the same way local.properties is.
+ *
+ * This matters more than usual for a sideloaded app: the phone will only accept an
+ * update that is signed by the same key, so a build that silently fell back to the
+ * debug key would force an uninstall - taking the usage history and every pending
+ * cooldown with it. Missing credentials therefore leave the release unsigned rather
+ * than quietly signing it with something else.
+ */
+val keystoreProperties = Properties().apply {
+    val file = rootProject.file("keystore.properties")
+    if (file.exists()) file.inputStream().use { load(it) }
 }
 
 android {
@@ -13,19 +29,39 @@ android {
         applicationId = "am.onex.stopdoom"
         minSdk = 34
         targetSdk = 36
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = 2
+        versionName = "0.2.0"
+    }
+
+    signingConfigs {
+        if (keystoreProperties.getProperty("storeFile") != null) {
+            create("release") {
+                storeFile = rootProject.file(keystoreProperties.getProperty("storeFile"))
+                storePassword = keystoreProperties.getProperty("storePassword")
+                keyAlias = keystoreProperties.getProperty("keyAlias")
+                keyPassword = keystoreProperties.getProperty("keyPassword")
+                // v2/v3 are what a modern sideload verifies against; v1 costs nothing
+                // to keep and avoids surprises with third-party installers.
+                enableV1Signing = true
+                enableV2Signing = true
+                enableV3Signing = true
+            }
+        }
     }
 
     buildTypes {
         debug {
             isMinifyEnabled = false
+            applicationIdSuffix = ".debug"
+            versionNameSuffix = "-debug"
         }
         release {
             // No shrinking: an accessibility service that matches on class names and a
             // reflection-free DNS parser gain nothing from R8 here, and obfuscation would
             // make on-device logcat debugging of selectors much harder.
             isMinifyEnabled = false
+            isDebuggable = false
+            signingConfig = signingConfigs.findByName("release")
         }
     }
 

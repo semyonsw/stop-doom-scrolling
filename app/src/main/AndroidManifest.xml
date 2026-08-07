@@ -9,17 +9,16 @@
     <!-- Full-screen block overlay drawn over other apps. -->
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
 
-    <!-- Cross-check for whole-app totals; granted from Settings, not a runtime dialog. -->
-    <uses-permission
-        android:name="android.permission.PACKAGE_USAGE_STATS"
-        tools:ignore="ProtectedPermissions" />
-
+    <!--
+      No PACKAGE_USAGE_STATS: timing comes from the accessibility service, which sees
+      sections rather than whole apps, so usage stats would only duplicate a coarser
+      number. Asking for it bought nothing and it is an alarming thing to grant.
+    -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
-    <uses-permission android:name="android.permission.VIBRATE" />
 
     <!-- Needed to show an installed-app picker when authoring whole-app rules. -->
     <uses-permission

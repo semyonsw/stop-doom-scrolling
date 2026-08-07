@@ -24,12 +24,23 @@ One `AccessibilityService` sees every foreground screen and drives everything el
 | `vpn/DnsFilterVpnService` | Local DNS filter; routes only its own fake resolver |
 | `web/UrlBarDetector` | Reads the browser omnibox; catches DoH and typed searches |
 | `guard/CooldownGate` | Single write path for anything that weakens protection |
+| `guard/SettingsGuard` | Backs you out of Settings pages naming this app; opt-in |
 | `debug/NodeTreeDumper` | Dumps the live view tree so real view ids can be found |
 
 ### Design notes worth knowing before you change anything
 
 - **`flagReportViewIds` is mandatory.** Without it every `viewIdResourceName` is null and
   all view-id matching silently fails while looking like a detection bug.
+- **The overlay must not take focus.** `FLAG_NOT_FOCUSABLE` is set for a reason: a
+  focusable overlay grabs input focus, and the Back the actuator injects a moment later
+  lands on the block screen instead of the feed. Touches are unaffected by focus, so the
+  dismiss button still works.
+- **The block screen outlives the scan that raised it.** Backing out of the feed means
+  the very next scan matches nothing, so tearing the overlay down there would flash it
+  away in about 200ms. It goes when dismissed, or on its own timer.
+- **`visibleTarget` and `currentRuleId` are different questions.** The second is reset by
+  a block so the next entry logs as fresh; only the first can answer "is the feed still
+  up?", which is what the Back loop keeps asking.
 - **`minAreaFraction` is not decoration.** The word "Shorts" appears on YouTube's bottom-nav
   tab, which is on the home feed. Matching it without an area floor blocks all of YouTube.
   There is a test for exactly this.
@@ -53,13 +64,33 @@ One `AccessibilityService` sees every foreground screen and drives everything el
 ```bash
 export JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64
 export ANDROID_HOME=/root/android-sdk
-./gradlew assembleDebug
+./gradlew assembleRelease      # app/build/outputs/apk/release/app-release.apk
 ./gradlew testDebugUnitTest
 ```
 
 > `local.properties` holds `sdk.dir` and is machine-specific — it is gitignored. Android
 > Studio on Windows will rewrite it with a Windows path; if you then build from WSL, point
 > it back at the Linux SDK (or delete it and rely on `ANDROID_HOME`).
+
+### Signing
+
+`keystore.properties` and `doomguard-release.jks` sit in the project root and are both
+gitignored. **Back them up off this machine.** The phone only accepts an update signed by
+the same key, so losing them means uninstalling to upgrade — which takes the usage history
+and every pending cooldown with it.
+
+Missing credentials leave the release unsigned rather than quietly falling back to the
+debug key, because a silent fallback produces exactly that uninstall.
+
+Debug builds carry an `.debug` application id suffix, so a debug and a release install can
+sit side by side instead of blocking each other over a signature mismatch.
+
+### Installing on the phone
+
+Copy `app-release.apk` across and open it. Android will ask to allow installs from
+whatever app you copied it with; that prompt is normal for a sideload. If an older build
+is already installed under `am.onex.stopdoom` and the install fails, uninstall it first —
+it was signed with a different key.
 
 ### On the phone
 
@@ -94,6 +125,10 @@ and take a whole-app budget instead.
   admin. It forces a deliberate extra step, which is enough to outlast an impulse.
 - **The accessibility toggle is not protected.** The system owns that switch. Turning it off
   disables everything instantly and no cooldown applies. The watchdog notices and nags.
+- **The aggressive guard stands down on purpose.** With it on, Settings pages that name
+  DoomGuard get backed out of — but after three attempts it steps aside for a minute. A
+  guard with no way out gets escaped by a factory reset instead, which is strictly worse.
+  It is off by default.
 - **Private DNS defeats the DNS filter** completely — queries go over TLS and never enter the
   tunnel. The Guard tab surfaces this; browser URL checking still covers it.
 - **Maintenance mode exists on purpose.** You are the developer of the thing blocking you.
@@ -102,7 +137,7 @@ and take a whole-app budget instead.
 
 ## Tests
 
-69 unit tests, no device needed:
+90 unit tests, no device needed:
 
 ```bash
 ./gradlew testDebugUnitTest
@@ -114,6 +149,8 @@ and take a whole-app budget instead.
 - `UrlBarDetectorTest` — host extraction, allowlist precedence, keyword matching
 - `UsageTrackerTest` — budgets against real SQLite under Robolectric
 - `RuleJsonTest` — including a check that the bundled asset actually parses
+- `BlockActuatorTest` — the Back retry sequence, both ways it can fail silently
+- `SettingsGuardTest` — screen recognition and the stand-down bargain
 
 ## Device checklist
 

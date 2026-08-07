@@ -19,6 +19,9 @@ import java.net.DatagramPacket
 import java.net.DatagramSocket
 import java.net.InetAddress
 import java.net.InetSocketAddress
+import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.ExecutorService
+import java.util.concurrent.Executors
 import kotlin.concurrent.thread
 
 /**
@@ -40,6 +43,31 @@ class DnsFilterVpnService : VpnService() {
     private var running = false
 
     private var worker: Thread? = null
+
+    /**
+     * Upstream lookups run off the read loop.
+     *
+     * Doing them inline meant one unreachable resolver stalled the single thread that
+     * drains the tunnel for the whole socket timeout, and every other app's DNS queued
+     * behind it. A small pool keeps a slow answer from becoming a device-wide freeze.
+     */
+    private var forwarders: ExecutorService? = null
+
+    /** Sockets handed out per forwarder thread, tracked so teardown can close them. */
+    private val upstreamSockets = CopyOnWriteArrayList<DatagramSocket>()
+
+    private val upstreamSocket = ThreadLocal.withInitial {
+        DatagramSocket().also { socket ->
+            // Without protect(), our own upstream query is routed back into the
+            // tunnel and loops forever.
+            protect(socket)
+            socket.soTimeout = UPSTREAM_TIMEOUT_MS
+            upstreamSockets.add(socket)
+        }
+    }
+
+    /** Serialises tunnel writes, which several forwarders now share. */
+    private val writeLock = Any()
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == ACTION_STOP) {
@@ -95,6 +123,9 @@ class DnsFilterVpnService : VpnService() {
 
         tunnel = descriptor
         running = true
+        forwarders = Executors.newFixedThreadPool(FORWARDER_THREADS) { runnable ->
+            Thread(runnable, "doomguard-dns-fwd").apply { isDaemon = true }
+        }
         container.usage.log(System.currentTimeMillis(), "dns_filter_started")
 
         worker = thread(name = "doomguard-dns", isDaemon = true) {
@@ -106,12 +137,6 @@ class DnsFilterVpnService : VpnService() {
         val input = FileInputStream(descriptor.fileDescriptor)
         val output = FileOutputStream(descriptor.fileDescriptor)
         val buffer = ByteArray(MTU)
-
-        val upstream = DatagramSocket()
-        // Without protect(), our own upstream query would be routed back into the
-        // tunnel and loop forever.
-        protect(upstream)
-        upstream.soTimeout = UPSTREAM_TIMEOUT_MS
 
         try {
             while (running) {
@@ -138,25 +163,29 @@ class DnsFilterVpnService : VpnService() {
                     continue
                 }
 
-                forward(upstream, output, datagram, container)
+                // Answering from the blocklist is a pure in-memory lookup and stays on
+                // this thread; only the network round-trip is handed off.
+                val pool = forwarders ?: continue
+                runCatching { pool.execute { forward(output, datagram, container) } }
+                    .onFailure { Log.d(TAG, "forwarder rejected: ${it.message}") }
             }
         } catch (t: Throwable) {
             Log.e(TAG, "dns loop stopped", t)
         } finally {
-            runCatching { upstream.close() }
             runCatching { input.close() }
             runCatching { output.close() }
         }
     }
 
     private fun forward(
-        upstream: DatagramSocket,
         output: FileOutputStream,
         datagram: DnsPacket.Datagram,
         container: am.onex.stopdoom.AppContainer,
     ) {
+        if (!running) return
         val resolver = container.settings.current.upstreamDns
         val target = runCatching { InetAddress.getByName(resolver) }.getOrNull() ?: return
+        val upstream = runCatching { upstreamSocket.get() }.getOrNull() ?: return
 
         runCatching {
             upstream.send(
@@ -166,10 +195,22 @@ class DnsFilterVpnService : VpnService() {
                     InetSocketAddress(target, DNS_PORT),
                 ),
             )
+
+            // A socket is reused across queries, so a reply that arrives after its
+            // own query timed out is still sitting there. Answering the current
+            // question with it would hand the client a record for a different name,
+            // so replies are read until the transaction id lines up.
+            val expected = DnsPacket.transactionId(datagram.payload)
             val response = ByteArray(MTU)
-            val packet = DatagramPacket(response, response.size)
-            upstream.receive(packet)
-            writeBack(output, datagram, response.copyOf(packet.length))
+            repeat(MAX_STALE_REPLIES) {
+                val packet = DatagramPacket(response, response.size)
+                upstream.receive(packet)
+                val reply = response.copyOf(packet.length)
+                if (expected == null || DnsPacket.transactionId(reply) == expected) {
+                    writeBack(output, datagram, reply)
+                    return@runCatching
+                }
+            }
         }.onFailure {
             // A timeout here is normal on a flaky network. Dropping the query lets
             // the client retry, which is better than synthesising a wrong answer.
@@ -190,11 +231,21 @@ class DnsFilterVpnService : VpnService() {
             dstPort = query.srcPort,
             payload = dnsPayload,
         )
-        runCatching { output.write(packet) }
+        // Several forwarders share this descriptor; interleaved writes would splice
+        // two replies into one malformed packet.
+        synchronized(writeLock) {
+            runCatching { output.write(packet) }
+        }
     }
 
     private fun teardown() {
         running = false
+        forwarders?.shutdownNow()
+        forwarders = null
+        // Closing the sockets is what unblocks a forwarder parked in receive();
+        // shutdownNow only interrupts, and a blocking UDP read ignores that.
+        upstreamSockets.forEach { runCatching { it.close() } }
+        upstreamSockets.clear()
         worker?.interrupt()
         worker = null
         runCatching { tunnel?.close() }
@@ -238,6 +289,12 @@ class DnsFilterVpnService : VpnService() {
         private const val MTU = 1500
         private const val DNS_PORT = 53
         private const val UPSTREAM_TIMEOUT_MS = 5_000
+
+        /** Enough to overlap the bursts a page load produces without spawning threads per query. */
+        private const val FORWARDER_THREADS = 4
+
+        /** How many late replies to skip before giving up on matching a transaction id. */
+        private const val MAX_STALE_REPLIES = 4
 
         // Link-local-ish addresses inside the tunnel. Nothing else on the device
         // uses this range, so there is no collision with the real network.

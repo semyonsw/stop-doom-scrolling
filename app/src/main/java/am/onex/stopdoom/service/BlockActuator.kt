@@ -5,6 +5,30 @@ import android.os.Handler
 import am.onex.stopdoom.rules.BlockAction
 
 /**
+ * The two system gestures a block can make.
+ *
+ * Behind an interface only so the retry sequence below can be tested. Getting that
+ * sequence wrong is silent: it either gives up while the feed is still up, or walks
+ * the user out to the launcher when a single Back would have done.
+ */
+interface GlobalActions {
+    fun back()
+    fun home()
+
+    companion object {
+        fun of(service: AccessibilityService) = object : GlobalActions {
+            override fun back() {
+                service.performGlobalAction(AccessibilityService.GLOBAL_ACTION_BACK)
+            }
+
+            override fun home() {
+                service.performGlobalAction(AccessibilityService.GLOBAL_ACTION_HOME)
+            }
+        }
+    }
+}
+
+/**
  * Carries out a block.
  *
  * Back-pressing rather than going Home is the default because it does what you
@@ -14,7 +38,7 @@ import am.onex.stopdoom.rules.BlockAction
  * an app that ignores it would walk the user out of everything.
  */
 class BlockActuator(
-    private val service: AccessibilityService,
+    private val actions: GlobalActions,
     private val handler: Handler,
 ) {
 
@@ -26,7 +50,7 @@ class BlockActuator(
             BlockAction.OVERLAY_ONLY -> onFinished()
 
             BlockAction.HOME -> {
-                service.performGlobalAction(AccessibilityService.GLOBAL_ACTION_HOME)
+                actions.home()
                 onFinished()
             }
 
@@ -56,19 +80,22 @@ class BlockActuator(
 
     private val backStep = object : Runnable {
         override fun run() {
-            if (attemptsRemaining <= 0) {
-                // Gave up: the app is not responding to Back. Home is the fallback
-                // that always works, rather than leaving the feed on screen.
-                service.performGlobalAction(AccessibilityService.GLOBAL_ACTION_HOME)
-                finish()
-                return
-            }
+            // Order matters: ask whether the target is gone before deciding the
+            // attempts ran out, or a Back that worked on the last try would still
+            // be followed by a trip to the launcher.
             if (!stillMatching()) {
                 finish()
                 return
             }
+            if (attemptsRemaining <= 0) {
+                // Gave up: the app is not responding to Back. Home is the fallback
+                // that always works, rather than leaving the feed on screen.
+                actions.home()
+                finish()
+                return
+            }
             attemptsRemaining--
-            service.performGlobalAction(AccessibilityService.GLOBAL_ACTION_BACK)
+            actions.back()
             handler.postDelayed(this, BACK_INTERVAL_MS)
         }
     }
@@ -79,7 +106,7 @@ class BlockActuator(
         onFinished()
     }
 
-    private companion object {
+    companion object {
         const val MAX_BACK_ATTEMPTS = 5
         const val BACK_INTERVAL_MS = 350L
     }

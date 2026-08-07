@@ -222,5 +222,7 @@ private fun GuardedToggle.explain(): String = when (this) {
     GuardedToggle.URL_BAR_BLOCKING -> "Reads the browser address bar; catches DoH bypasses."
     GuardedToggle.KEYWORD_BLOCKING -> "Matches typed searches, which DNS never sees."
     GuardedToggle.WATCHDOG_AGGRESSIVE ->
-        "Backs you out of this app's own Settings pages. Effective, and annoying while developing."
+        "Backs you out of Settings pages that name DoomGuard, so reaching the accessibility " +
+            "switch costs something. Stands aside for a minute after three tries, so it is " +
+            "friction rather than a lock. Annoying while developing."
 }

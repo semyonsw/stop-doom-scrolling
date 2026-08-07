@@ -1,12 +1,10 @@
 package am.onex.stopdoom.ui
 
-import android.app.AppOpsManager
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.net.VpnService
 import android.os.PowerManager
-import android.os.Process
 import android.provider.Settings
 import am.onex.stopdoom.guard.AdminReceiver
 import am.onex.stopdoom.guard.ServiceWatchdog
@@ -39,11 +37,6 @@ enum class SetupStep(
         "Used to tell you when protection has been switched off.",
         required = true,
     ),
-    USAGE_ACCESS(
-        "Usage access",
-        "Cross-checks whole-app totals. Section timing does not depend on it.",
-        required = false,
-    ),
     VPN_CONSENT(
         "Website filter (VPN)",
         "A local DNS filter. No traffic leaves the device and no server is involved.",
@@ -67,7 +60,6 @@ enum class SetupStep(
         NOTIFICATIONS -> context.checkSelfPermission(
             android.Manifest.permission.POST_NOTIFICATIONS,
         ) == android.content.pm.PackageManager.PERMISSION_GRANTED
-        USAGE_ACCESS -> hasUsageAccess(context)
         VPN_CONSENT -> VpnService.prepare(context) == null
         BATTERY_UNRESTRICTED -> isIgnoringBatteryOptimizations(context)
         DEVICE_ADMIN -> AdminReceiver.isActive(context)
@@ -81,7 +73,6 @@ enum class SetupStep(
             Uri.parse("package:${context.packageName}"),
         )
         NOTIFICATIONS -> null
-        USAGE_ACCESS -> Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS)
         VPN_CONSENT -> null
         @Suppress("BatteryLife")
         BATTERY_UNRESTRICTED -> Intent(
@@ -92,22 +83,6 @@ enum class SetupStep(
     }
 
     companion object {
-        /**
-         * There is no non-deprecated way to ask whether usage access was granted -
-         * the op check is still what the platform offers, so the warning is
-         * suppressed rather than worked around.
-         */
-        @Suppress("DEPRECATION")
-        fun hasUsageAccess(context: Context): Boolean {
-            val appOps = context.getSystemService(AppOpsManager::class.java) ?: return false
-            val mode = appOps.unsafeCheckOpNoThrow(
-                AppOpsManager.OPSTR_GET_USAGE_STATS,
-                Process.myUid(),
-                context.packageName,
-            )
-            return mode == AppOpsManager.MODE_ALLOWED
-        }
-
         fun isIgnoringBatteryOptimizations(context: Context): Boolean {
             val power = context.getSystemService(PowerManager::class.java) ?: return false
             return power.isIgnoringBatteryOptimizations(context.packageName)

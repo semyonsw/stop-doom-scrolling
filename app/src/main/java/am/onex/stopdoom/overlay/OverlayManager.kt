@@ -4,6 +4,8 @@ import android.annotation.SuppressLint
 import android.content.Context
 import android.graphics.PixelFormat
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import android.provider.Settings
 import android.view.Gravity
 import android.view.View
@@ -38,7 +40,16 @@ class OverlayManager(private val context: Context) {
     private val windowManager =
         context.getSystemService(Context.WINDOW_SERVICE) as WindowManager
 
+    private val mainHandler = Handler(Looper.getMainLooper())
+
     private var host: OverlayHost? = null
+
+    /**
+     * Last resort. The block screen is deliberately sticky - it outlives the scan
+     * that raised it, or the countdown would never be seen - and that means a
+     * crashed service could otherwise leave an undismissable window over the phone.
+     */
+    private val autoHide = Runnable { hideIfShowing() }
 
     val isShowing: Boolean get() = host != null
 
@@ -77,9 +88,13 @@ class OverlayManager(private val context: Context) {
             WindowManager.LayoutParams.MATCH_PARENT,
             WindowManager.LayoutParams.MATCH_PARENT,
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
-            // Focusable so the dismiss button works and the overlay takes Back,
-            // but not touch-modal, so system gestures still function.
-            WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED,
+            // FLAG_NOT_FOCUSABLE is load-bearing. A focusable overlay takes input
+            // focus, and the Back that the actuator injects a moment later would
+            // then be delivered here instead of to the feed underneath - so the
+            // block screen would appear and the app would never be backed out of.
+            // Touches are unaffected by focus, so the dismiss button still works.
+            WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED or
+                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
             PixelFormat.TRANSLUCENT,
         ).apply {
             gravity = Gravity.TOP or Gravity.START
@@ -93,14 +108,25 @@ class OverlayManager(private val context: Context) {
             .onSuccess {
                 newHost.onAttached()
                 host = newHost
+                mainHandler.removeCallbacks(autoHide)
+                mainHandler.postDelayed(
+                    autoHide,
+                    (frictionSeconds.coerceAtLeast(0) + AUTO_HIDE_GRACE_SECONDS) * 1_000L,
+                )
             }
     }
 
     fun hideIfShowing() {
+        mainHandler.removeCallbacks(autoHide)
         val current = host ?: return
         host = null
         runCatching { windowManager.removeView(current.view) }
         current.onDetached()
+    }
+
+    private companion object {
+        /** How long the screen lingers after the countdown before giving up on a tap. */
+        const val AUTO_HIDE_GRACE_SECONDS = 45
     }
 }
 
