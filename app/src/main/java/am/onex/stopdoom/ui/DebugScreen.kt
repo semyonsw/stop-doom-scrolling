@@ -16,12 +16,14 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.platform.ClipEntry
 import androidx.compose.ui.platform.LocalClipboard
 import androidx.compose.ui.text.font.FontFamily
@@ -56,7 +58,17 @@ fun DebugScreen(
     var hostsText by remember { mutableStateOf("") }
     var domainText by remember { mutableStateOf("") }
 
+    // Probing every rule on every scan is real work in a scrolling feed, so the
+    // service only does it while this screen is actually in front of someone.
+    DisposableEffect(Unit) {
+        viewModel.setDiagnostics(true)
+        onDispose { viewModel.setDiagnostics(false) }
+    }
+    val scan by viewModel.lastScan.collectAsStateWithLifecycle()
+
     LazyColumn(modifier = modifier.fillMaxWidth()) {
+        item { LiveMatchCard(scan) }
+
         item {
             SectionCard(title = "Find the real view ids", subtitle = "Dump the live screen") {
                 Text(
@@ -191,5 +203,86 @@ fun DebugScreen(
         }
 
         item { Spacer(Modifier.height(24.dp)) }
+    }
+}
+
+/**
+ * Why the last screen did or did not match.
+ *
+ * The question this answers is the one the app previously had no way to answer at
+ * all: a rule that never fires and a service that never ran look identical from the
+ * Stats tab. Leave this tab open, switch to the feed, come back - the report is
+ * from the last scan the service did, so it describes the screen you were just on.
+ */
+@Composable
+private fun LiveMatchCard(scan: am.onex.stopdoom.ScanReport?) {
+    if (scan == null) {
+        SectionCard(title = "Live match check", subtitle = "Waiting for a screen") {
+            Text(
+                "Leave this tab open, switch to the app you are trying to block, open " +
+                    "the feed, then come back here. This will show what the service saw " +
+                    "and why each rule did or did not fire.",
+                style = MaterialTheme.typography.bodyMedium,
+            )
+        }
+        return
+    }
+
+    SectionCard(
+        title = "Live match check",
+        subtitle = "${scan.packageName} at ${formatTimestamp(scan.at)}",
+    ) {
+        if (scan.probes.isEmpty()) {
+            Callout(
+                "No rule watches this app. If you meant to block it, the package name " +
+                    "in the rule does not match \"${scan.packageName}\" - copy that " +
+                    "string into the rule's package list.",
+                tone = CalloutTone.Warn,
+            )
+            return@SectionCard
+        }
+
+        Text(
+            "Scanned ${scan.nodeCount} elements, ${scan.viewIdCount} with a view id, " +
+                "on a ${scan.screenWidth}x${scan.screenHeight} screen.",
+            style = MaterialTheme.typography.bodyMedium,
+        )
+        if (scan.truncated) {
+            Spacer(Modifier.height(8.dp))
+            Callout(
+                "The scan hit its size cap, so it did not see the whole screen. A match " +
+                    "that lives deeper than the walk goes cannot be found.",
+                tone = CalloutTone.Warn,
+            )
+        }
+
+        scan.probes.forEach { probe ->
+            Spacer(Modifier.height(16.dp))
+            Text(
+                text = probe.label,
+                style = MaterialTheme.typography.titleSmall,
+                color = if (probe.matched) {
+                    MaterialTheme.colorScheme.primary
+                } else {
+                    MaterialTheme.colorScheme.onSurface
+                },
+            )
+            Spacer(Modifier.height(4.dp))
+            Callout(
+                probe.verdict,
+                tone = if (probe.matched) CalloutTone.Good else CalloutTone.Warn,
+            )
+            probe.groups.forEach { group ->
+                Spacer(Modifier.height(4.dp))
+                Hint(
+                    "${group.name}: ${group.raw} found, ${group.passing} big enough" +
+                        if (group.raw > 0) {
+                            ", largest ${(group.largestFraction * 100).toInt()}% of screen"
+                        } else {
+                            ""
+                        },
+                )
+            }
+        }
     }
 }

@@ -221,6 +221,13 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     // --- debug ------------------------------------------------------------
 
+    val lastScan = container.lastScan
+
+    /** Bound to the Debug screen being on show; see AppContainer.diagnosticsOn. */
+    fun setDiagnostics(enabled: Boolean) {
+        container.diagnosticsOn = enabled
+    }
+
     fun armDump() {
         container.dumper.arm()
         note("Dumping in 5s. Open the screen you want to inspect now.")

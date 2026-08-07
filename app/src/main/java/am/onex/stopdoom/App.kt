@@ -67,6 +67,23 @@ class AppContainer(private val context: Context) {
     private val _accessibilityConnected = MutableStateFlow(false)
     val accessibilityConnected: StateFlow<Boolean> = _accessibilityConnected
 
+    private val _lastScan = MutableStateFlow<ScanReport?>(null)
+
+    /** What the most recent scan of a watched app found, for the Debug tab. */
+    val lastScan: StateFlow<ScanReport?> = _lastScan
+
+    /**
+     * Probing every rule on every scan doubles the matching work, and the scan loop
+     * runs five times a second inside a scrolling feed. It is therefore off unless
+     * the Debug screen is actually in front of someone.
+     */
+    @Volatile
+    var diagnosticsOn: Boolean = false
+
+    fun publishScan(report: ScanReport) {
+        _lastScan.value = report
+    }
+
     fun start() {
         settings.keepFresh(scope)
         scope.launch {
@@ -108,3 +125,23 @@ class AppContainer(private val context: Context) {
 }
 
 data class RemainingBudget(val ruleId: String, val label: String, val seconds: Int)
+
+/**
+ * One scan, explained.
+ *
+ * Detection failing is otherwise completely silent - the rule simply never fires,
+ * which looks exactly like the service not running. This carries enough to tell
+ * those apart, and enough to say which of the four ways a selector can be wrong
+ * actually happened.
+ */
+data class ScanReport(
+    val at: Long,
+    val packageName: String,
+    val nodeCount: Int,
+    val viewIdCount: Int,
+    val truncated: Boolean,
+    val screenWidth: Int,
+    val screenHeight: Int,
+    val matchedRuleId: String?,
+    val probes: List<am.onex.stopdoom.rules.RuleProbe>,
+)

@@ -103,8 +103,19 @@ class NodeScanner(
     }
 
     companion object {
-        const val DEFAULT_MAX_DEPTH = 12
-        const val DEFAULT_MAX_NODES = 400
+        /**
+         * Raised from 12/400 after a Shorts player went undetected on a real device.
+         *
+         * Twelve levels does not reach the content of a modern YouTube or Instagram
+         * screen - the compose and fragment wrappers alone eat most of that - so the
+         * walk was stopping above everything worth matching and reporting nothing,
+         * which is indistinguishable from a wrong selector. The node cap is what
+         * actually bounds the cost, and this loop only runs for packages a rule
+         * already names, so a handful more nodes in three apps is affordable where
+         * an undetectable feed is not.
+         */
+        const val DEFAULT_MAX_DEPTH = 24
+        const val DEFAULT_MAX_NODES = 1200
 
         /** The dumper wants the whole tree, so it uses far looser caps. */
         fun forDumping() = NodeScanner(maxDepth = 40, maxNodes = 4000)

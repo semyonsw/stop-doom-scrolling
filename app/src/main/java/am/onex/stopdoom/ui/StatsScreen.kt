@@ -50,9 +50,16 @@ fun StatsScreen(
             item {
                 SectionCard(title = "No usage recorded yet") {
                     Hint(
-                        "If you have opened Shorts or Reels and this is still empty, the " +
-                            "selectors are not matching. Use the Debug tab to dump the " +
-                            "screen and see the real view ids.",
+                        "Time is only counted while a rule is matching - this is not a " +
+                            "general app-usage tracker. So if you have opened Shorts or " +
+                            "Reels and this is still empty, the selectors are not matching " +
+                            "anything.",
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    Hint(
+                        "Switch to developer mode on the Guard tab, open the Debug tab, and " +
+                            "read \"Live match check\". It says which selector failed and " +
+                            "why, which is faster than guessing at ids.",
                     )
                 }
             }

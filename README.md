@@ -47,7 +47,16 @@ One `AccessibilityService` sees every foreground screen and drives everything el
   tab, which is on the home feed. Matching it without an area floor blocks all of YouTube.
   There is a test for exactly this.
 - **The tree walk is capped.** It runs on every content-change event in a scrolling video
-  feed. Uncapped recursion is visible jank and real battery cost.
+  feed. Uncapped recursion is visible jank and real battery cost. The caps are 24 deep and
+  1200 nodes — raised from 12/400, which did not reach the content of a real Shorts screen
+  and so reported nothing, indistinguishable from a wrong selector. Only packages a rule
+  already names are ever walked, which is what makes the larger caps affordable.
+- **A rule that never fires used to be silent.** `RuleProbe` is the fix: it re-runs the
+  matcher's own counting and keeps `raw` hits (before the area floor) apart from `passing`
+  hits (after it), because "your selector is wrong" and "your selector is right but
+  `minAreaFraction` is too high" are indistinguishable from a boolean and need opposite
+  corrections. Debug → *Live match check* renders it. It is off unless that screen is in
+  front of someone, since probing every rule on every scan doubles the matching work.
 - **The VPN routes one address.** Only the fake resolver `10.7.7.3` enters the tunnel;
   everything else takes its normal path. Routing `0.0.0.0/0` would cost far more for no
   extra blocking power.
@@ -118,7 +127,24 @@ common reason a blocker quietly stops working on One UI.**
 ## Fixing the selectors (do this first)
 
 The bundled view ids in `app/src/main/assets/default_rules.json` are **best-effort guesses**.
-They cannot be verified from a development machine. Correct them like this:
+They cannot be verified from a development machine, and until they are corrected **nothing
+is blocked and nothing is tracked** — time is only counted while a rule matches, so a Stats
+tab reading zero is the expected symptom of a wrong selector, not a separate bug.
+
+Start with **Debug → Live match check**, which answers the question directly:
+
+1. **Guard** tab → Mode → **Developer**.
+2. **Debug** tab, leave it open, switch to YouTube, open Shorts, come back.
+3. *Live match check* reports the last screen the service scanned and, per rule, one of:
+   - *None of the selectors were found* — the ids are wrong; dump and read the real ones.
+   - *...and it hit its size cap* — the screen is bigger than the walk goes.
+   - *Found the selector, but the biggest match covers 4% ... needs 35%* — lower the
+     minimum size.
+   - *Found 1 matching element, but the rule needs 3* — lower the element count.
+   - *No rule watches this app* — the package name in the rule is wrong; the report
+     prints the real one.
+
+Then correct them:
 
 1. **Debug** tab → *Dump in 5s*, then open YouTube Shorts.
 2. Read the ids — in the app, or `adb logcat -s DoomGuard/Dump`.
@@ -166,7 +192,7 @@ and take a whole-app budget instead.
 
 ## Tests
 
-104 unit tests, no device needed:
+115 unit tests, no device needed:
 
 ```bash
 ./gradlew testDebugUnitTest
@@ -183,6 +209,7 @@ and take a whole-app budget instead.
 - `SettingsSnapshotTest` — the master switch and maintenance, through one predicate
 - `RuleIdTest` — id slugs, including the collision the form must not create
 - `PendingChangeStoreTest` — the queue, including releasing it when the cooldown goes off
+- `RuleProbeTest` — each way a selector can miss, pinned to the sentence it produces
 
 ## Device checklist
 

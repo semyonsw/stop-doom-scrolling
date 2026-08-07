@@ -9,6 +9,8 @@ import android.view.accessibility.AccessibilityEvent
 import am.onex.stopdoom.App
 import am.onex.stopdoom.AppContainer
 import am.onex.stopdoom.R
+import am.onex.stopdoom.ScanReport
+import am.onex.stopdoom.rules.probe
 import am.onex.stopdoom.guard.SettingsGuard
 import am.onex.stopdoom.rules.BlockAction
 import am.onex.stopdoom.rules.BlockRule
@@ -121,6 +123,24 @@ class DoomAccessibilityService : AccessibilityService() {
             packageName in SettingsGuard.SETTINGS_PACKAGES
 
         if (candidates.isEmpty() && !isBrowser && !wantsDump && !guardsSettings) {
+            // Worth reporting rather than dropping: "no rule names this package" is
+            // what a mistyped package name looks like from here, and it is otherwise
+            // indistinguishable from a selector that does not match.
+            if (container.diagnosticsOn) {
+                container.publishScan(
+                    ScanReport(
+                        at = now,
+                        packageName = packageName,
+                        nodeCount = 0,
+                        viewIdCount = 0,
+                        truncated = false,
+                        screenWidth = 0,
+                        screenHeight = 0,
+                        matchedRuleId = null,
+                        probes = emptyList(),
+                    ),
+                )
+            }
             clearActive()
             return
         }
@@ -143,6 +163,7 @@ class DoomAccessibilityService : AccessibilityService() {
         }
 
         val needsSnapshot = wantsDump || isBrowser || guardsSettings ||
+            container.diagnosticsOn ||
             (fastMatch == null && candidates.any { it.needsTreeWalk })
 
         val snapshot: ScreenSnapshot? = if (needsSnapshot) {
@@ -163,6 +184,23 @@ class DoomAccessibilityService : AccessibilityService() {
         val matched = fastMatch
             ?: candidates.firstOrNull { it.wholeApp }
             ?: snapshot?.let { container.engine.firstMatch(it) }
+
+        // Only while someone is looking at the Debug tab; see AppContainer.diagnosticsOn.
+        if (container.diagnosticsOn && snapshot != null) {
+            container.publishScan(
+                ScanReport(
+                    at = now,
+                    packageName = packageName,
+                    nodeCount = snapshot.nodes.size,
+                    viewIdCount = snapshot.nodes.count { it.viewId != null },
+                    truncated = snapshot.truncated,
+                    screenWidth = width,
+                    screenHeight = height,
+                    matchedRuleId = matched?.id,
+                    probes = candidates.map { it.probe(snapshot) },
+                ),
+            )
+        }
 
         if (matched == null) {
             clearActive()
