@@ -77,7 +77,14 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         is ChangeOutcome.Deferred -> {
             val minutes = ((outcome.effectiveAt - System.currentTimeMillis()) / 60_000L)
                 .coerceAtLeast(0L)
-            "Queued. This weakens a limit, so it takes effect in about $minutes min."
+            // With the cooldown switched off a weakening is still queued, but it is
+            // already due, and the refresh that follows every one of these calls
+            // drains it. Reporting it as queued would be true and useless.
+            if (minutes <= 0L) {
+                "$appliedText Cooldown is off, so it applied immediately."
+            } else {
+                "Queued. This weakens a limit, so it takes effect in about $minutes min."
+            }
         }
     }
 
@@ -148,6 +155,48 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     fun setCooldownMinutes(minutes: Int) = viewModelScope.launch(Dispatchers.IO) {
         val outcome = container.cooldownGate.requestCooldownChange(minutes)
         note(describe(outcome, "Cooldown is now $minutes min."))
+        refresh()
+    }
+
+    /**
+     * The one write in the app that deliberately goes around [ChangeOutcome].
+     *
+     * Routing it through the gate would mean waiting out the cooldown to switch the
+     * cooldown off, which is precisely the situation it exists to escape. The price
+     * is that this is an instant bypass, so it lives behind developer mode and is
+     * announced on every screen while it is off.
+     */
+    fun setCooldownEnabled(enabled: Boolean) = viewModelScope.launch(Dispatchers.IO) {
+        container.settings.setCooldownEnabled(enabled)
+        if (enabled) {
+            note("Cooldown is back on. Weakenings wait again.")
+        } else {
+            // Anything already waiting was queued under the old rules; leaving it
+            // parked would defeat the point of switching off to test.
+            val released = container.pending.makeAllDue(System.currentTimeMillis())
+            container.applyDuePendingChangesSafely()
+            container.reloadRules()
+            note(
+                if (released == 0) {
+                    "Cooldown off. Changes now apply immediately."
+                } else {
+                    "Cooldown off. Applied $released change(s) that were waiting."
+                },
+            )
+        }
+        refresh()
+    }
+
+    fun setDeveloperMode(enabled: Boolean) = viewModelScope.launch(Dispatchers.IO) {
+        container.settings.setDeveloperMode(enabled)
+        // Leaving developer mode with the cooldown off would hide the switch that
+        // turns it back on, so the protection restores itself on the way out.
+        if (!enabled && !container.settings.read().cooldownEnabled) {
+            container.settings.setCooldownEnabled(true)
+            note("User mode. Selector editing hidden and the cooldown is back on.")
+        } else {
+            note(if (enabled) "Developer mode on." else "User mode.")
+        }
         refresh()
     }
 

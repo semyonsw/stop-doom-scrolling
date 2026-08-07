@@ -55,12 +55,18 @@ class MainActivity : ComponentActivity() {
 
 // Core icons only. material-icons-extended is roughly 30MB of vectors for the
 // five glyphs this app actually shows.
-private enum class Tab(val label: String, val icon: ImageVector) {
+private enum class Tab(
+    val label: String,
+    val icon: ImageVector,
+    val developerOnly: Boolean = false,
+) {
     SETUP("Setup", Icons.Filled.CheckCircle),
     RULES("Rules", Icons.AutoMirrored.Filled.List),
     STATS("Stats", Icons.Filled.DateRange),
     GUARD("Guard", Icons.Filled.Lock),
-    DEBUG("Debug", Icons.Filled.Build),
+
+    /** Dumping the live view tree only means anything if you can edit selectors. */
+    DEBUG("Debug", Icons.Filled.Build, developerOnly = true),
 }
 
 /**
@@ -88,20 +94,30 @@ private fun DoomGuardApp(viewModel: MainViewModel = viewModel()) {
     }
 
     val now = System.currentTimeMillis()
-    val offReason = when {
-        !state.settings.protectionEnabled -> "All protection is switched off"
-        state.settings.maintenanceActiveAt(now) -> "Maintenance mode - nothing is blocked"
-        else -> null
+    val tabs = Tab.entries.filter { !it.developerOnly || state.settings.developerMode }
+
+    // Leaving developer mode while standing on the Debug tab would otherwise strand
+    // the screen with no way back to it in the bar.
+    LaunchedEffect(state.settings.developerMode) {
+        if (tab !in tabs) tab = Tab.GUARD
+    }
+
+    // Weakened states worth carrying onto every tab. The rules list looks identical
+    // whether or not anything is being enforced, and a rule that quietly is not
+    // running is the failure this app cannot afford.
+    val alerts = buildList {
+        when {
+            !state.settings.protectionEnabled -> add("All protection is switched off")
+            state.settings.maintenanceActiveAt(now) -> add("Maintenance mode - nothing is blocked")
+        }
+        if (!state.settings.cooldownEnabled) add("Change cooldown is OFF - nothing waits")
     }
 
     Scaffold(
         topBar = {
             Column {
                 TopAppBar(title = { Text(tab.label) })
-                // Being switched off is the one state worth carrying onto every tab:
-                // the rules list looks identical either way, and a rule that quietly
-                // is not running is the failure this app cannot afford.
-                if (offReason != null) {
+                alerts.forEach { alert ->
                     Surface(
                         color = MaterialTheme.colorScheme.error,
                         contentColor = MaterialTheme.colorScheme.onPrimary,
@@ -110,7 +126,7 @@ private fun DoomGuardApp(viewModel: MainViewModel = viewModel()) {
                             .clickable { tab = Tab.GUARD },
                     ) {
                         Text(
-                            text = "$offReason - tap to fix",
+                            text = "$alert - tap to fix",
                             style = MaterialTheme.typography.labelLarge,
                             textAlign = TextAlign.Center,
                             modifier = Modifier
@@ -124,7 +140,7 @@ private fun DoomGuardApp(viewModel: MainViewModel = viewModel()) {
         snackbarHost = { SnackbarHost(snackbarHostState) },
         bottomBar = {
             NavigationBar {
-                Tab.entries.forEach { entry ->
+                tabs.forEach { entry ->
                     NavigationBarItem(
                         selected = tab == entry,
                         onClick = { tab = entry },

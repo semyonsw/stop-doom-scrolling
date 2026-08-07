@@ -45,6 +45,8 @@ fun GuardScreen(
     val maintenanceActive = state.settings.maintenanceActiveAt(now)
 
     LazyColumn(modifier = modifier.fillMaxWidth()) {
+        item { ModeCard(state, viewModel) }
+
         item { MasterSwitchCard(state, viewModel, now) }
 
         if (maintenanceActive) {
@@ -63,9 +65,24 @@ fun GuardScreen(
         }
 
         item {
+            val cooldownOn = state.settings.cooldownEnabled
             SectionCard(
                 title = "Change cooldown",
-                subtitle = "Currently ${state.settings.cooldownMinutes} minutes",
+                subtitle = if (cooldownOn) {
+                    "Currently ${state.settings.cooldownMinutes} minutes"
+                } else {
+                    "OFF - every change applies immediately"
+                },
+                trailing = if (state.settings.developerMode) {
+                    {
+                        Switch(
+                            checked = cooldownOn,
+                            onCheckedChange = { viewModel.setCooldownEnabled(it) },
+                        )
+                    }
+                } else {
+                    null
+                },
             ) {
                 Text(
                     "The load-bearing part. Anything that weakens a limit waits this long; " +
@@ -73,6 +90,15 @@ fun GuardScreen(
                         "outlast an urge is the right setting - two hours is a good start.",
                     style = MaterialTheme.typography.bodyMedium,
                 )
+                if (!cooldownOn) {
+                    Spacer(Modifier.height(12.dp))
+                    Callout(
+                        "Nothing is waiting. Budgets, rules and the master switch can all be " +
+                            "weakened in one tap - this is a testing setting, not a way to " +
+                            "live. Switch it back on when you are done.",
+                        tone = CalloutTone.Warn,
+                    )
+                }
                 Spacer(Modifier.height(12.dp))
                 Row(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -83,14 +109,26 @@ fun GuardScreen(
                         onValueChange = { cooldownText = it.filter(Char::isDigit).take(4) },
                         label = { Text("Minutes") },
                         singleLine = true,
+                        enabled = cooldownOn,
                         modifier = Modifier.weight(1f),
                     )
-                    Button(onClick = {
-                        cooldownText.toIntOrNull()?.let { viewModel.setCooldownMinutes(it) }
-                    }) { Text("Set") }
+                    Button(
+                        onClick = {
+                            cooldownText.toIntOrNull()?.let { viewModel.setCooldownMinutes(it) }
+                        },
+                        enabled = cooldownOn,
+                    ) { Text("Set") }
                 }
                 Spacer(Modifier.height(8.dp))
-                Hint("Raising it is instant. Lowering it waits out the current cooldown first.")
+                Hint(
+                    if (state.settings.developerMode) {
+                        "Raising it is instant. Lowering it waits out the current cooldown " +
+                            "first. The switch above skips the wait entirely and is the only " +
+                            "control in the app that does."
+                    } else {
+                        "Raising it is instant. Lowering it waits out the current cooldown first."
+                    },
+                )
             }
         }
 
@@ -206,6 +244,44 @@ fun GuardScreen(
         }
 
         item { Spacer(Modifier.height(24.dp)) }
+    }
+}
+
+/**
+ * User mode or developer mode.
+ *
+ * The split is by what a field costs to get wrong. Budgets, cooldowns and the
+ * protection switches are choices about how you want to be treated; view ids and
+ * area fractions are a debugging surface for when an app update breaks a selector,
+ * and a wrong value there produces a rule that silently matches nothing. User mode
+ * hides the second group rather than disabling it - the rules keep working exactly
+ * as they were - and summarises what it is hiding so it never looks like the
+ * matchers were lost.
+ */
+@Composable
+private fun ModeCard(state: UiState, viewModel: MainViewModel) {
+    val developer = state.settings.developerMode
+    SectionCard(
+        title = "Mode",
+        subtitle = if (developer) "Developer" else "User",
+    ) {
+        ChoiceField(
+            title = "",
+            options = listOf(false, true),
+            selected = developer,
+            onSelect = { viewModel.setDeveloperMode(it) },
+            labelOf = { if (it) "Developer" else "User" },
+            describeSelected = {
+                if (it) {
+                    "Adds the selector editor - view ids, content descriptions, on-screen " +
+                        "text, match thresholds - plus the JSON editors, the Debug tab and " +
+                        "the switch that turns the change cooldown off for testing."
+                } else {
+                    "Names, apps, time limits, block behaviour and the protection switches. " +
+                        "Everything you need to tune how strict the app is."
+                }
+            },
+        )
     }
 }
 

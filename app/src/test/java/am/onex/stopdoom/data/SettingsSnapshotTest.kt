@@ -22,6 +22,19 @@ class SettingsSnapshotTest {
     }
 
     @Test
+    fun `defaults are user mode with the cooldown enforced`() {
+        assertFalse(base.developerMode)
+        assertTrue(base.cooldownEnabled)
+    }
+
+    @Test
+    fun `the developer switches do not affect whether blocking runs`() {
+        // Developer mode reveals editing surfaces and the cooldown governs how fast a
+        // change lands. Neither is an answer to "should this screen be blocked".
+        assertTrue(base.copy(developerMode = true, cooldownEnabled = false).blockingActiveAt(now))
+    }
+
+    @Test
     fun `the master switch stops blocking on its own`() {
         assertFalse(base.copy(protectionEnabled = false).blockingActiveAt(now))
     }

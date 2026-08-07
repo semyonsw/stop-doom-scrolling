@@ -31,8 +31,13 @@ import am.onex.stopdoom.rules.MatchSpec
  *
  * Every field a rule has is a real control here, because the JSON editor it replaces
  * asked you to remember both the key names and the units. The raw editor is still
- * one tap away - selectors sometimes have to be pasted from a dump - but nothing
- * routine needs it any more.
+ * one tap away in developer mode - selectors sometimes have to be pasted from a
+ * dump - but nothing routine needs it any more.
+ *
+ * [developerMode] decides whether the selector half of a rule is shown. Hidden, it
+ * is still there and still enforced: a rule edited in user mode keeps every matcher
+ * it had, and the card that would have held them says so rather than leaving a gap
+ * that reads as "this rule matches nothing".
  *
  * The loosening check runs live against the rule as it was when the screen opened,
  * so the cooldown is visible while you are still deciding rather than as a surprise
@@ -42,18 +47,21 @@ import am.onex.stopdoom.rules.MatchSpec
 fun RuleEditorScreen(
     original: BlockRule?,
     existingIds: List<String>,
+    developerMode: Boolean,
     onSave: (BlockRule) -> Unit,
     onCancel: () -> Unit,
     onEditJson: (BlockRule) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    var draft by remember(original) { mutableStateOf(original ?: newRule()) }
+    // A new rule in user mode can only be a whole-app one: there is no way to enter
+    // a selector, so anything else would save a rule that can never fire.
+    var draft by remember(original) { mutableStateOf(original ?: newRule(wholeApp = !developerMode)) }
     var showAppPicker by remember { mutableStateOf(false) }
 
     val isNew = original == null
     val id = if (isNew) uniqueId(draft.label, existingIds) else draft.id
     val loosens = original != null && isLoosening(original, draft)
-    val problem = draft.problem()
+    val problem = draft.problem(developerMode)
 
     fun edit(block: BlockRule.() -> BlockRule) {
         draft = draft.block()
@@ -145,7 +153,24 @@ fun RuleEditorScreen(
             }
         }
 
-        if (!draft.wholeApp) {
+        if (!draft.wholeApp && !developerMode) {
+            item {
+                SectionCard(
+                    title = "What to look for",
+                    subtitle = "Set up in developer mode",
+                ) {
+                    Text(draft.match.readOnlySummary(), style = MaterialTheme.typography.bodyMedium)
+                    Spacer(Modifier.height(8.dp))
+                    Hint(
+                        "These are the selectors that recognise the feed on screen. They keep " +
+                            "working exactly as they are; switch to developer mode on the " +
+                            "Guard tab to change them.",
+                    )
+                }
+            }
+        }
+
+        if (!draft.wholeApp && developerMode) {
             item {
                 SectionCard(
                     title = "What to look for",
@@ -328,7 +353,9 @@ fun RuleEditorScreen(
                         enabled = draft.label.isNotBlank(),
                     ) { Text(if (isNew) "Create rule" else "Save") }
                     OutlinedButton(onClick = onCancel) { Text("Cancel") }
-                    TextButton(onClick = { onEditJson(draft.copy(id = id)) }) { Text("JSON") }
+                    if (developerMode) {
+                        TextButton(onClick = { onEditJson(draft.copy(id = id)) }) { Text("JSON") }
+                    }
                 }
                 Spacer(Modifier.height(8.dp))
                 Hint(
@@ -381,12 +408,36 @@ fun BlockRule.describeTarget(): String = when {
     else -> packages.joinToString { it.shortPackage() }
 }
 
+/**
+ * What the hidden half of the rule contains, for user mode.
+ *
+ * Hiding the selector fields is fine; hiding the fact that a rule has selectors at
+ * all is not - the card would read as an empty rule that cannot fire.
+ */
+private fun MatchSpec.readOnlySummary(): String {
+    val parts = buildList {
+        if (anyViewIdContains.isNotEmpty()) add("${anyViewIdContains.size} view id(s)")
+        if (anyContentDescription.isNotEmpty()) {
+            add("${anyContentDescription.size} content description(s)")
+        }
+        if (anyText.isNotEmpty()) add("${anyText.size} text matcher(s)")
+    }
+    if (parts.isEmpty()) return "No selectors set, so this rule cannot fire yet."
+    val combine = if (requireAllGroups) "All groups must match" else "Any group may match"
+    return "Matching on ${parts.joinToString(", ")}. $combine, at least $minMatchingNodes " +
+        "element(s), covering ${(minAreaFraction * 100).toInt()}% of the screen or more."
+}
+
 /** The one thing that would make a saved rule silently do nothing. */
-private fun BlockRule.problem(): String? = when {
+private fun BlockRule.problem(developerMode: Boolean): String? = when {
     label.isBlank() -> "Give the rule a name before saving."
-    !wholeApp && match.isEmpty ->
+    !wholeApp && match.isEmpty -> if (developerMode) {
         "No matchers set, so this rule can never fire. Add a view id, a content " +
             "description or some text - or turn on \"Block the whole app\"."
+    } else {
+        "This rule has no selectors, so it can never fire. Turn on \"Block the whole " +
+            "app\", or switch to developer mode on the Guard tab to add selectors."
+    }
 
     else -> null
 }
@@ -430,10 +481,11 @@ private val BlockAction.ordering: Int
 private const val DEFAULT_SESSION_SECONDS = 300
 private const val DEFAULT_DAILY_SECONDS = 900
 
-private fun newRule() = BlockRule(
+private fun newRule(wholeApp: Boolean) = BlockRule(
     id = "",
     label = "",
     enabled = true,
+    wholeApp = wholeApp,
     sessionBudgetSeconds = DEFAULT_SESSION_SECONDS,
     dailyBudgetSeconds = DEFAULT_DAILY_SECONDS,
 )

@@ -21,6 +21,23 @@ private val Context.dataStore: DataStore<Preferences> by preferencesDataStore(na
 data class SettingsSnapshot(
     /** The master switch. False means nothing is blocked, whatever the rules say. */
     val protectionEnabled: Boolean,
+    /**
+     * Reveals the selector editing, the JSON editors and the Debug tab.
+     *
+     * Purely what the UI shows, with one exception that matters: the cooldown
+     * switch below only exists in developer mode, which makes this the door to
+     * the app's only instant bypass. Off is the setting to live in.
+     */
+    val developerMode: Boolean,
+    /**
+     * Whether the change cooldown is enforced at all.
+     *
+     * False makes every weakening apply on the spot, which is the only way to
+     * test a change without waiting out a real cooldown. It is not protected by
+     * the gate it disables - that would make it useless for the one job it has -
+     * so it is deliberately loud everywhere it is on.
+     */
+    val cooldownEnabled: Boolean,
     val cooldownMinutes: Int,
     val maintenanceUntil: Long,
     val webBlockingEnabled: Boolean,
@@ -69,6 +86,10 @@ class Settings(private val context: Context) {
 
     suspend fun setProtectionEnabled(value: Boolean) = edit { it[PROTECTION_ENABLED] = value }
 
+    suspend fun setDeveloperMode(value: Boolean) = edit { it[DEVELOPER_MODE] = value }
+
+    suspend fun setCooldownEnabled(value: Boolean) = edit { it[COOLDOWN_ENABLED] = value }
+
     suspend fun setCooldownMinutes(value: Int) = edit { it[COOLDOWN_MINUTES] = value.coerceAtLeast(0) }
 
     suspend fun setMaintenanceUntil(untilMillis: Long) = edit { it[MAINTENANCE_UNTIL] = untilMillis }
@@ -94,6 +115,8 @@ class Settings(private val context: Context) {
 
     private fun Preferences.toSnapshot() = SettingsSnapshot(
         protectionEnabled = this[PROTECTION_ENABLED] ?: DEFAULTS.protectionEnabled,
+        developerMode = this[DEVELOPER_MODE] ?: DEFAULTS.developerMode,
+        cooldownEnabled = this[COOLDOWN_ENABLED] ?: DEFAULTS.cooldownEnabled,
         cooldownMinutes = this[COOLDOWN_MINUTES] ?: DEFAULTS.cooldownMinutes,
         maintenanceUntil = this[MAINTENANCE_UNTIL] ?: DEFAULTS.maintenanceUntil,
         webBlockingEnabled = this[WEB_BLOCKING] ?: DEFAULTS.webBlockingEnabled,
@@ -108,6 +131,8 @@ class Settings(private val context: Context) {
 
     companion object {
         private val PROTECTION_ENABLED = booleanPreferencesKey("protection_enabled")
+        private val DEVELOPER_MODE = booleanPreferencesKey("developer_mode")
+        private val COOLDOWN_ENABLED = booleanPreferencesKey("cooldown_enabled")
         private val COOLDOWN_MINUTES = intPreferencesKey("cooldown_minutes")
         private val MAINTENANCE_UNTIL = longPreferencesKey("maintenance_until")
         private val WEB_BLOCKING = booleanPreferencesKey("web_blocking")
@@ -120,6 +145,10 @@ class Settings(private val context: Context) {
 
         val DEFAULTS = SettingsSnapshot(
             protectionEnabled = true,
+            // Both off by default: the selector fields are noise until a rule stops
+            // matching, and the cooldown is the whole mechanism.
+            developerMode = false,
+            cooldownEnabled = true,
             cooldownMinutes = 120,
             maintenanceUntil = 0L,
             webBlockingEnabled = true,

@@ -78,6 +78,20 @@ class PendingChangeStore(private val db: Db) {
     }
 
     /**
+     * Brings the whole queue forward, for when the cooldown is switched off.
+     *
+     * Without this, turning the cooldown off would only affect changes made after
+     * the switch, and anything already waiting would sit there for its original
+     * two hours - which is exactly the case you were trying to get out of.
+     */
+    fun makeAllDue(nowMillis: Long): Int = db.writableDatabase.update(
+        "pending_change",
+        ContentValues().apply { put("effective_at" to nowMillis) },
+        null,
+        null,
+    )
+
+    /**
      * Cancelling a pending change is always allowed: it moves you back toward the
      * stricter state, and tightening never waits.
      */

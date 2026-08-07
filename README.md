@@ -54,6 +54,12 @@ One `AccessibilityService` sees every foreground screen and drives everything el
 - **Rules are data, not code.** They are edited on the phone, because YouTube's internal
   ids are undocumented and change between builds. The form is the front door; the raw
   JSON editor stays because selectors are sometimes pasted wholesale out of a dump.
+- **User mode and developer mode split by what a field costs to get wrong.** Budgets,
+  cooldowns and the protection switches are choices about how you want to be treated.
+  View ids and area fractions are a debugging surface, and a wrong value there produces
+  a rule that silently matches nothing. User mode hides the second group — it does not
+  disable it. A rule edited in user mode keeps every matcher it had, and the card that
+  would have held them summarises what is there, so it never reads as an empty rule.
 - **The master switch goes through the cooldown.** A one-tap "off" that applied instantly
   would make every other cooldown in the app decorative. Turning protection back on is
   immediate; turning it off is queued like any other weakening, so the switch does not
@@ -135,6 +141,15 @@ and take a whole-app budget instead.
 - **The master switch is not an exception to that.** Switching everything off is queued
   like any other weakening; switching it back on is instant. While a switch-off is
   pending, the Guard card says so and offers to cancel it.
+- **The cooldown switch is a real hole, and the only one the app opens on purpose.**
+  Developer mode reveals a switch that turns the cooldown off outright, which makes
+  every weakening instant and releases whatever was already queued. It cannot be
+  protected by the gate it disables — waiting two hours to disable the two hour wait
+  is the exact problem it exists to solve — so the honesty is carried by visibility
+  instead: a red strip on every tab while it is off, a warning on the Guard card, and
+  an automatic switch-back-on when you leave developer mode. It is for testing a rule
+  change in the same minute you make it. Anything longer than that and the app is not
+  doing its job.
 - **Device admin is friction, not a lock.** Since Android 6 you can always deactivate an
   admin. It forces a deliberate extra step, which is enough to outlast an impulse.
 - **The accessibility toggle is not protected.** The system owns that switch. Turning it off
@@ -151,7 +166,7 @@ and take a whole-app budget instead.
 
 ## Tests
 
-98 unit tests, no device needed:
+104 unit tests, no device needed:
 
 ```bash
 ./gradlew testDebugUnitTest
@@ -167,8 +182,13 @@ and take a whole-app budget instead.
 - `SettingsGuardTest` — screen recognition and the stand-down bargain
 - `SettingsSnapshotTest` — the master switch and maintenance, through one predicate
 - `RuleIdTest` — id slugs, including the collision the form must not create
+- `PendingChangeStoreTest` — the queue, including releasing it when the cooldown goes off
 
 ## Device checklist
+
+Do 1–6 with **Guard → Mode → Developer** and the **change cooldown switched off**, or every
+step that weakens something costs you a two hour wait. Switch the cooldown back on before
+step 7 — that step is the one that tests it.
 
 1. Setup tab all green.
 2. Open YouTube Shorts → overlay + back-out within ~1s. If not, dump and fix selectors.
@@ -176,4 +196,6 @@ and take a whole-app budget instead.
 4. Set a budget to 30s → confirm allow, then block at expiry, then instant re-block.
 5. Visit a blocklisted domain → NXDOMAIN. Enable Chrome Secure DNS, retry → URL check catches it.
 6. Reboot → filter and service come back.
-7. Raise a limit → countdown appears, nothing changes. Try to uninstall → admin blocks it.
+7. Cooldown on. Raise a limit → countdown appears, nothing changes. Try to uninstall →
+   admin blocks it.
+8. Switch to **User** mode → Debug tab and the selector fields go, the rules keep firing.

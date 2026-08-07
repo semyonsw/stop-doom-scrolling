@@ -306,8 +306,11 @@ fun <T> ChoiceField(
     describeSelected: ((T) -> String)? = null,
 ) {
     Column(modifier.fillMaxWidth()) {
-        FieldHeader(title = title, help = help)
-        Spacer(Modifier.height(8.dp))
+        // Callers that already have a card title pass "" rather than repeating it.
+        if (title.isNotBlank() || help != null) {
+            FieldHeader(title = title, help = help)
+            Spacer(Modifier.height(8.dp))
+        }
         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             options.forEach { option ->
                 FilterChip(

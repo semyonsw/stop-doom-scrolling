@@ -50,7 +50,19 @@ class CooldownGate(
     private val clock: () -> Long = System::currentTimeMillis,
 ) {
 
-    private fun cooldownMillis(): Long = settings.current.cooldownMinutes.toLong() * 60_000L
+    /**
+     * Zero when the cooldown is switched off, which is what makes the testing
+     * escape hatch work.
+     *
+     * A weakening still goes through the queue rather than around it - it is just
+     * due the moment it lands, so the next drain applies it. Keeping one path means
+     * the logging, the supersede-on-tighten rule and the pending list all behave
+     * exactly as they do normally, and switching the cooldown back on cannot leave
+     * a change stranded in a state the queue has never seen.
+     */
+    private fun cooldownMillis(): Long =
+        if (!settings.current.cooldownEnabled) 0L
+        else settings.current.cooldownMinutes.toLong() * 60_000L
 
     fun requestRuleUpsert(updated: BlockRule): ChangeOutcome {
         val existing = rules.readAll().firstOrNull { it.id == updated.id }

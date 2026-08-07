@@ -63,6 +63,7 @@ fun RulesScreen(
             RuleEditorScreen(
                 original = current.rule,
                 existingIds = state.rules.map { it.id },
+                developerMode = state.settings.developerMode,
                 onSave = {
                     viewModel.saveRule(it)
                     mode = RuleEditorMode.List
@@ -118,10 +119,12 @@ fun RulesScreen(
                 }
                 Spacer(Modifier.height(8.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedButton(onClick = {
-                        editorText = viewModel.exportRulesJson()
-                        mode = RuleEditorMode.Json(bulk = true)
-                    }) { Text("Edit all as JSON") }
+                    if (state.settings.developerMode) {
+                        OutlinedButton(onClick = {
+                            editorText = viewModel.exportRulesJson()
+                            mode = RuleEditorMode.Json(bulk = true)
+                        }) { Text("Edit all as JSON") }
+                    }
                     TextButton(onClick = { viewModel.resetRulesToDefaults() }) {
                         Text("Reset to defaults")
                     }
