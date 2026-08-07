@@ -26,6 +26,8 @@ One `AccessibilityService` sees every foreground screen and drives everything el
 | `guard/CooldownGate` | Single write path for anything that weakens protection |
 | `guard/SettingsGuard` | Backs you out of Settings pages naming this app; opt-in |
 | `debug/NodeTreeDumper` | Dumps the live view tree so real view ids can be found |
+| `ui/RuleEditorScreen` | Every rule field as a form control; raw JSON kept as a fallback |
+| `ui/Controls` | The form widgets - durations, counts, screen fractions, tag lists |
 
 ### Design notes worth knowing before you change anything
 
@@ -49,8 +51,16 @@ One `AccessibilityService` sees every foreground screen and drives everything el
 - **The VPN routes one address.** Only the fake resolver `10.7.7.3` enters the tunnel;
   everything else takes its normal path. Routing `0.0.0.0/0` would cost far more for no
   extra blocking power.
-- **Rules are data, not code.** Selectors are JSON you edit on the phone, because YouTube's
-  internal ids are undocumented and change between builds.
+- **Rules are data, not code.** They are edited on the phone, because YouTube's internal
+  ids are undocumented and change between builds. The form is the front door; the raw
+  JSON editor stays because selectors are sometimes pasted wholesale out of a dump.
+- **The master switch goes through the cooldown.** A one-tap "off" that applied instantly
+  would make every other cooldown in the app decorative. Turning protection back on is
+  immediate; turning it off is queued like any other weakening, so the switch does not
+  follow the finger - which is why the Guard card shows the queued change next to it.
+- **`SettingsSnapshot.blockingActiveAt` is the single question.** The master switch and
+  maintenance mode both answer it, so a new blocking path can only get this wrong by not
+  asking at all.
 
 ## Setup
 
@@ -108,7 +118,8 @@ They cannot be verified from a development machine. Correct them like this:
 2. Read the ids — in the app, or `adb logcat -s DoomGuard/Dump`.
 3. Also dump a screen you do **not** want blocked (the YouTube home feed) and confirm the
    ids do not overlap.
-4. **Rules** tab → *Edit* → paste the real ids into `anyViewIdContains` → Save.
+4. **Rules** tab → *Edit* → add the real ids under **View ids** → Save. For a whole list
+   pasted out of a dump, the *JSON* button on the same screen is faster.
 
 No rebuild needed. Saved dumps are the same shape as the test fixtures in
 `RuleEngineTest`, so a dump can be pasted straight into a regression test.
@@ -121,6 +132,9 @@ and take a whole-app budget instead.
 
 - **The change cooldown does the real work.** Weakening any limit waits (default 2 hours);
   tightening applies at once. Enforced in `CooldownGate`, which is the only write path.
+- **The master switch is not an exception to that.** Switching everything off is queued
+  like any other weakening; switching it back on is instant. While a switch-off is
+  pending, the Guard card says so and offers to cancel it.
 - **Device admin is friction, not a lock.** Since Android 6 you can always deactivate an
   admin. It forces a deliberate extra step, which is enough to outlast an impulse.
 - **The accessibility toggle is not protected.** The system owns that switch. Turning it off
@@ -137,7 +151,7 @@ and take a whole-app budget instead.
 
 ## Tests
 
-90 unit tests, no device needed:
+98 unit tests, no device needed:
 
 ```bash
 ./gradlew testDebugUnitTest
@@ -151,6 +165,8 @@ and take a whole-app budget instead.
 - `RuleJsonTest` — including a check that the bundled asset actually parses
 - `BlockActuatorTest` — the Back retry sequence, both ways it can fail silently
 - `SettingsGuardTest` — screen recognition and the stand-down bargain
+- `SettingsSnapshotTest` — the master switch and maintenance, through one predicate
+- `RuleIdTest` — id slugs, including the collision the form must not create
 
 ## Device checklist
 

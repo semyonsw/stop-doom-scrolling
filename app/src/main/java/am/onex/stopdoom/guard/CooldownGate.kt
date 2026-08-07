@@ -18,6 +18,12 @@ sealed interface ChangeOutcome {
 
 /** Settings that can be weakened, and which value counts as the weaker one. */
 enum class GuardedToggle(val key: String, val looseningValue: Boolean, val label: String) {
+    /**
+     * The master switch. It goes through the same gate as everything else on
+     * purpose: a one-tap "off" that applied instantly would make every other
+     * cooldown in the app decorative.
+     */
+    PROTECTION_ENABLED("protection_enabled", false, "all protection"),
     WEB_BLOCKING("web_blocking", false, "website blocking"),
     URL_BAR_BLOCKING("url_bar_blocking", false, "browser URL checking"),
     KEYWORD_BLOCKING("keyword_blocking", false, "keyword blocking"),
@@ -118,6 +124,7 @@ class CooldownGate(
 
     /** Used by both the instant path above and the worker that drains the queue. */
     suspend fun applyToggle(toggle: GuardedToggle, value: Boolean) = when (toggle) {
+        GuardedToggle.PROTECTION_ENABLED -> settings.setProtectionEnabled(value)
         GuardedToggle.WEB_BLOCKING -> settings.setWebBlocking(value)
         GuardedToggle.URL_BAR_BLOCKING -> settings.setUrlBarBlocking(value)
         GuardedToggle.KEYWORD_BLOCKING -> settings.setKeywordBlocking(value)

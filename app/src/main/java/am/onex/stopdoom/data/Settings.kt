@@ -19,6 +19,8 @@ import kotlinx.coroutines.launch
 private val Context.dataStore: DataStore<Preferences> by preferencesDataStore(name = "doomguard")
 
 data class SettingsSnapshot(
+    /** The master switch. False means nothing is blocked, whatever the rules say. */
+    val protectionEnabled: Boolean,
     val cooldownMinutes: Int,
     val maintenanceUntil: Long,
     val webBlockingEnabled: Boolean,
@@ -30,6 +32,15 @@ data class SettingsSnapshot(
     val replacementActivities: List<String>,
 ) {
     fun maintenanceActiveAt(nowMillis: Long): Boolean = nowMillis < maintenanceUntil
+
+    /**
+     * The one question every blocker asks before acting.
+     *
+     * Both ways of switching everything off answer it, so a new blocking path can
+     * only get this wrong by not calling it at all.
+     */
+    fun blockingActiveAt(nowMillis: Long): Boolean =
+        protectionEnabled && !maintenanceActiveAt(nowMillis)
 }
 
 class Settings(private val context: Context) {
@@ -56,6 +67,8 @@ class Settings(private val context: Context) {
     /** One-shot read for callers that can suspend. */
     suspend fun read(): SettingsSnapshot = flow.first().also { current = it }
 
+    suspend fun setProtectionEnabled(value: Boolean) = edit { it[PROTECTION_ENABLED] = value }
+
     suspend fun setCooldownMinutes(value: Int) = edit { it[COOLDOWN_MINUTES] = value.coerceAtLeast(0) }
 
     suspend fun setMaintenanceUntil(untilMillis: Long) = edit { it[MAINTENANCE_UNTIL] = untilMillis }
@@ -80,6 +93,7 @@ class Settings(private val context: Context) {
     }
 
     private fun Preferences.toSnapshot() = SettingsSnapshot(
+        protectionEnabled = this[PROTECTION_ENABLED] ?: DEFAULTS.protectionEnabled,
         cooldownMinutes = this[COOLDOWN_MINUTES] ?: DEFAULTS.cooldownMinutes,
         maintenanceUntil = this[MAINTENANCE_UNTIL] ?: DEFAULTS.maintenanceUntil,
         webBlockingEnabled = this[WEB_BLOCKING] ?: DEFAULTS.webBlockingEnabled,
@@ -93,6 +107,7 @@ class Settings(private val context: Context) {
     )
 
     companion object {
+        private val PROTECTION_ENABLED = booleanPreferencesKey("protection_enabled")
         private val COOLDOWN_MINUTES = intPreferencesKey("cooldown_minutes")
         private val MAINTENANCE_UNTIL = longPreferencesKey("maintenance_until")
         private val WEB_BLOCKING = booleanPreferencesKey("web_blocking")
@@ -104,6 +119,7 @@ class Settings(private val context: Context) {
         private val REPLACEMENTS = stringPreferencesKey("replacement_activities")
 
         val DEFAULTS = SettingsSnapshot(
+            protectionEnabled = true,
             cooldownMinutes = 120,
             maintenanceUntil = 0L,
             webBlockingEnabled = true,

@@ -149,10 +149,11 @@ class DnsFilterVpnService : VpnService() {
                 if (datagram == null || datagram.dstPort != DNS_PORT) continue
 
                 val host = DnsPacket.questionName(datagram.payload)
+                val settings = container.settings.current
                 val blocked = host != null &&
-                    container.blocklist.current().blocksHost(host) &&
-                    container.settings.current.webBlockingEnabled &&
-                    !container.settings.current.maintenanceActiveAt(System.currentTimeMillis())
+                    settings.webBlockingEnabled &&
+                    settings.blockingActiveAt(System.currentTimeMillis()) &&
+                    container.blocklist.current().blocksHost(host)
 
                 if (blocked) {
                     val reply = DnsPacket.buildNxDomain(datagram.payload)

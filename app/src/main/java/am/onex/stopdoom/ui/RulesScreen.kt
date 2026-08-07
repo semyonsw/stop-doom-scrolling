@@ -1,15 +1,17 @@
 package am.onex.stopdoom.ui
 
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material3.Button
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -30,58 +32,95 @@ import am.onex.stopdoom.rules.BlockRule
 import am.onex.stopdoom.rules.RuleJson
 
 /**
- * Rule list plus a raw JSON editor.
+ * The rule list, and the three ways in to editing one.
  *
- * The editor is the important half. Selectors have to be fixed against whatever
- * the installed YouTube build actually renders, and going through a rebuild for
- * each attempt would make that unworkable - so rules are text you can paste.
+ * The form is the front door. Raw JSON is still here because selectors are
+ * sometimes pasted wholesale out of a screen dump, and going through a rebuild
+ * for each attempt would make fixing a rule against a new app version unworkable -
+ * but nothing routine needs it now.
  */
+private sealed interface RuleEditorMode {
+    data object List : RuleEditorMode
+
+    /** [rule] null means a new one. */
+    data class Form(val rule: BlockRule?) : RuleEditorMode
+
+    /** [bulk] edits the whole list at once rather than a single rule. */
+    data class Json(val bulk: Boolean) : RuleEditorMode
+}
+
 @Composable
 fun RulesScreen(
     state: UiState,
     viewModel: MainViewModel,
     modifier: Modifier = Modifier,
 ) {
-    var editing by remember { mutableStateOf<BlockRule?>(null) }
+    var mode by remember { mutableStateOf<RuleEditorMode>(RuleEditorMode.List) }
     var editorText by remember { mutableStateOf("") }
-    var bulkMode by remember { mutableStateOf(false) }
 
-    val current = editing
-    if (current != null || bulkMode) {
-        RuleEditor(
-            titleText = if (bulkMode) "All rules" else current?.label.orEmpty(),
-            text = editorText,
-            onTextChange = { editorText = it },
-            onSave = {
-                if (bulkMode) viewModel.saveAllRulesJson(editorText)
-                else viewModel.saveRuleJson(editorText)
-                editing = null
-                bulkMode = false
-            },
-            onCancel = {
-                editing = null
-                bulkMode = false
-            },
-            modifier = modifier,
-        )
-        return
+    when (val current = mode) {
+        is RuleEditorMode.Form -> {
+            RuleEditorScreen(
+                original = current.rule,
+                existingIds = state.rules.map { it.id },
+                onSave = {
+                    viewModel.saveRule(it)
+                    mode = RuleEditorMode.List
+                },
+                onCancel = { mode = RuleEditorMode.List },
+                onEditJson = {
+                    editorText = RuleJson.encodeOne(it)
+                    mode = RuleEditorMode.Json(bulk = false)
+                },
+                modifier = modifier,
+            )
+            return
+        }
+
+        is RuleEditorMode.Json -> {
+            JsonEditor(
+                bulk = current.bulk,
+                text = editorText,
+                onTextChange = { editorText = it },
+                onSave = {
+                    if (current.bulk) {
+                        viewModel.saveAllRulesJson(editorText)
+                    } else {
+                        viewModel.saveRuleJson(editorText)
+                    }
+                    mode = RuleEditorMode.List
+                },
+                onCancel = { mode = RuleEditorMode.List },
+                modifier = modifier,
+            )
+            return
+        }
+
+        RuleEditorMode.List -> Unit
     }
 
     LazyColumn(modifier = modifier.fillMaxWidth()) {
         item {
+            val active = state.rules.count { it.enabled }
             SectionCard(
                 title = "Rules",
-                subtitle = "${state.rules.count { it.enabled }} of ${state.rules.size} active",
+                subtitle = "$active of ${state.rules.size} active",
             ) {
                 Hint(
                     "Order matters: the first matching rule wins, so keep narrow rules " +
                         "above broad ones.",
                 )
                 Spacer(Modifier.height(12.dp))
+                Button(onClick = { mode = RuleEditorMode.Form(null) }) {
+                    Icon(Icons.Filled.Add, contentDescription = null)
+                    Spacer(Modifier.width(8.dp))
+                    Text("New rule")
+                }
+                Spacer(Modifier.height(8.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutlinedButton(onClick = {
                         editorText = viewModel.exportRulesJson()
-                        bulkMode = true
+                        mode = RuleEditorMode.Json(bulk = true)
                     }) { Text("Edit all as JSON") }
                     TextButton(onClick = { viewModel.resetRulesToDefaults() }) {
                         Text("Reset to defaults")
@@ -102,7 +141,7 @@ fun RulesScreen(
                     )
                 },
             ) {
-                Text(rule.describeLimits(), style = MaterialTheme.typography.bodyMedium)
+                Text(rule.limitsSummary(), style = MaterialTheme.typography.bodyMedium)
                 if (used != null) {
                     Spacer(Modifier.height(4.dp))
                     Hint(
@@ -116,10 +155,7 @@ fun RulesScreen(
                 }
                 Spacer(Modifier.height(12.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedButton(onClick = {
-                        editorText = RuleJson.encodeOne(rule)
-                        editing = rule
-                    }) { Text("Edit") }
+                    Button(onClick = { mode = RuleEditorMode.Form(rule) }) { Text("Edit") }
                     TextButton(onClick = { viewModel.deleteRule(rule.id) }) { Text("Delete") }
                 }
             }
@@ -130,8 +166,8 @@ fun RulesScreen(
 }
 
 @Composable
-private fun RuleEditor(
-    titleText: String,
+private fun JsonEditor(
+    bulk: Boolean,
     text: String,
     onTextChange: (String) -> Unit,
     onSave: () -> Unit,
@@ -140,7 +176,10 @@ private fun RuleEditor(
 ) {
     LazyColumn(modifier = modifier.fillMaxWidth()) {
         item {
-            SectionCard(title = titleText, subtitle = "Raw JSON") {
+            SectionCard(
+                title = if (bulk) "All rules" else "Raw JSON",
+                subtitle = "Advanced",
+            ) {
                 Hint(
                     "Any entry containing \":id/\" is treated as an exact view id and gets " +
                         "the fast native lookup. Everything else is a case-insensitive " +
@@ -168,16 +207,4 @@ private fun RuleEditor(
         }
         item { Spacer(Modifier.height(24.dp)) }
     }
-}
-
-private fun BlockRule.describeTarget(): String = when {
-    wholeApp -> "Whole app: ${packages.joinToString()}"
-    packages.isEmpty() -> "Any app"
-    else -> packages.joinToString()
-}
-
-private fun BlockRule.describeLimits(): String = when {
-    blocksOnSight -> "Blocked on sight, ${frictionSeconds}s wait"
-    else -> "${formatDuration(sessionBudgetSeconds)} per visit, " +
-        "${formatDuration(dailyBudgetSeconds)} per day, ${frictionSeconds}s wait"
 }

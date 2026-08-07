@@ -4,6 +4,9 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.List
@@ -30,6 +33,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -82,8 +87,40 @@ private fun DoomGuardApp(viewModel: MainViewModel = viewModel()) {
         viewModel.clearMessage()
     }
 
+    val now = System.currentTimeMillis()
+    val offReason = when {
+        !state.settings.protectionEnabled -> "All protection is switched off"
+        state.settings.maintenanceActiveAt(now) -> "Maintenance mode - nothing is blocked"
+        else -> null
+    }
+
     Scaffold(
-        topBar = { TopAppBar(title = { Text(tab.label) }) },
+        topBar = {
+            Column {
+                TopAppBar(title = { Text(tab.label) })
+                // Being switched off is the one state worth carrying onto every tab:
+                // the rules list looks identical either way, and a rule that quietly
+                // is not running is the failure this app cannot afford.
+                if (offReason != null) {
+                    Surface(
+                        color = MaterialTheme.colorScheme.error,
+                        contentColor = MaterialTheme.colorScheme.onPrimary,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { tab = Tab.GUARD },
+                    ) {
+                        Text(
+                            text = "$offReason - tap to fix",
+                            style = MaterialTheme.typography.labelLarge,
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 8.dp, horizontal = 16.dp),
+                        )
+                    }
+                }
+            }
+        },
         snackbarHost = { SnackbarHost(snackbarHostState) },
         bottomBar = {
             NavigationBar {

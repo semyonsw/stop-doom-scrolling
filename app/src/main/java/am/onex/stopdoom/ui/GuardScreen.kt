@@ -1,13 +1,13 @@
 package am.onex.stopdoom.ui
 
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -45,6 +45,8 @@ fun GuardScreen(
     val maintenanceActive = state.settings.maintenanceActiveAt(now)
 
     LazyColumn(modifier = modifier.fillMaxWidth()) {
+        item { MasterSwitchCard(state, viewModel, now) }
+
         if (maintenanceActive) {
             item {
                 SectionCard(
@@ -115,33 +117,39 @@ fun GuardScreen(
         }
 
         item {
-            SectionCard(title = "Protection switches") {
-                GuardedToggle.entries.forEach { toggle ->
-                    val value = when (toggle) {
-                        GuardedToggle.WEB_BLOCKING -> state.settings.webBlockingEnabled
-                        GuardedToggle.URL_BAR_BLOCKING -> state.settings.urlBarBlockingEnabled
-                        GuardedToggle.KEYWORD_BLOCKING -> state.settings.keywordBlockingEnabled
-                        GuardedToggle.WATCHDOG_AGGRESSIVE -> state.settings.watchdogAggressive
-                    }
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Column(Modifier.weight(1f)) {
-                            Text(
-                                toggle.label.replaceFirstChar(Char::uppercase),
-                                style = MaterialTheme.typography.bodyLarge,
-                            )
-                            Hint(toggle.explain())
+            SectionCard(
+                title = "Individual switches",
+                subtitle = "Each part of the protection on its own",
+            ) {
+                // The master switch has its own card at the top; listing it again here
+                // would give the same setting two controls that disagree while a
+                // switch-off is queued.
+                GuardedToggle.entries
+                    .filter { it != GuardedToggle.PROTECTION_ENABLED }
+                    .forEach { toggle ->
+                        val value = when (toggle) {
+                            GuardedToggle.PROTECTION_ENABLED -> state.settings.protectionEnabled
+                            GuardedToggle.WEB_BLOCKING -> state.settings.webBlockingEnabled
+                            GuardedToggle.URL_BAR_BLOCKING -> state.settings.urlBarBlockingEnabled
+                            GuardedToggle.KEYWORD_BLOCKING -> state.settings.keywordBlockingEnabled
+                            GuardedToggle.WATCHDOG_AGGRESSIVE -> state.settings.watchdogAggressive
                         }
-                        Switch(
+                        SwitchRow(
+                            title = toggle.label.replaceFirstChar(Char::uppercase),
                             checked = value,
                             onCheckedChange = { viewModel.setToggle(toggle, it) },
+                            help = toggle.explain(),
+                            enabled = state.settings.protectionEnabled,
                         )
+                        Spacer(Modifier.height(16.dp))
                     }
-                    Spacer(Modifier.height(12.dp))
-                }
-                Hint("Turning any of these off is a weakening and waits for the cooldown.")
+                Hint(
+                    if (state.settings.protectionEnabled) {
+                        "Turning any of these off is a weakening and waits for the cooldown."
+                    } else {
+                        "Greyed out because all protection is switched off above."
+                    },
+                )
             }
         }
 
@@ -201,6 +209,99 @@ fun GuardScreen(
     }
 }
 
+/**
+ * The one switch that turns everything off.
+ *
+ * It goes through the cooldown like every other weakening, which means the switch
+ * cannot simply follow the finger: tapping it off leaves the state on and queues a
+ * change. Showing the queued change in the same card is what stops that reading as
+ * a broken control - the alternative, a switch that springs back with no
+ * explanation, is exactly how you end up disabling the accessibility service
+ * instead.
+ */
+@Composable
+private fun MasterSwitchCard(
+    state: UiState,
+    viewModel: MainViewModel,
+    now: Long,
+) {
+    val on = state.settings.protectionEnabled
+    val queuedOff = state.pending.firstOrNull {
+        it.targetId == GuardedToggle.PROTECTION_ENABLED.key
+    }
+    var confirming by remember { mutableStateOf(false) }
+
+    if (confirming) {
+        AlertDialog(
+            onDismissRequest = { confirming = false },
+            title = { Text("Switch everything off?") },
+            text = {
+                Text(
+                    "Every rule, the website filter and the browser URL check all stop. " +
+                        "This is a weakening, so it will not happen now - it is queued for " +
+                        "the ${state.settings.cooldownMinutes} minute cooldown, and you can " +
+                        "cancel it at any point before then.",
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    viewModel.setToggle(GuardedToggle.PROTECTION_ENABLED, false)
+                    confirming = false
+                }) { Text("Queue it") }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirming = false }) { Text("Keep it on") }
+            },
+        )
+    }
+
+    SectionCard(
+        title = "All protection",
+        subtitle = if (on) "On - rules are being enforced" else "OFF - nothing is blocked",
+        trailing = {
+            Switch(
+                checked = on,
+                onCheckedChange = { wanted ->
+                    if (wanted) {
+                        viewModel.setToggle(GuardedToggle.PROTECTION_ENABLED, true)
+                    } else {
+                        confirming = true
+                    }
+                },
+            )
+        },
+    ) {
+        Text(
+            "The single switch for everything below. Turning it back on is instant; " +
+                "turning it off waits out the cooldown.",
+            style = MaterialTheme.typography.bodyMedium,
+        )
+        if (!on) {
+            Spacer(Modifier.height(12.dp))
+            Callout(
+                "Nothing is being blocked right now. Feeds, websites and searches are " +
+                    "all open.",
+                tone = CalloutTone.Warn,
+            )
+            Spacer(Modifier.height(12.dp))
+            Button(onClick = { viewModel.setToggle(GuardedToggle.PROTECTION_ENABLED, true) }) {
+                Text("Turn protection back on")
+            }
+        } else if (queuedOff != null) {
+            Spacer(Modifier.height(12.dp))
+            Callout(
+                "Switching off ${formatRelativeFuture(queuedOff.effectiveAt, now)}. " +
+                    "The switch stays on until then.",
+                tone = CalloutTone.Warn,
+            )
+            Spacer(Modifier.height(8.dp))
+            OutlinedButton(onClick = { viewModel.cancelPending(queuedOff.id) }) {
+                Text("Cancel that")
+            }
+        }
+    }
+}
+
 @Composable
 private fun StatusLine(label: String, value: String, warn: Boolean) {
     Row(
@@ -218,7 +319,8 @@ private fun StatusLine(label: String, value: String, warn: Boolean) {
 }
 
 private fun GuardedToggle.explain(): String = when (this) {
-    GuardedToggle.WEB_BLOCKING -> "Master switch for the DNS filter and URL checks."
+    GuardedToggle.PROTECTION_ENABLED -> "Everything, in one switch."
+    GuardedToggle.WEB_BLOCKING -> "Covers the DNS filter and the URL checks together."
     GuardedToggle.URL_BAR_BLOCKING -> "Reads the browser address bar; catches DoH bypasses."
     GuardedToggle.KEYWORD_BLOCKING -> "Matches typed searches, which DNS never sees."
     GuardedToggle.WATCHDOG_AGGRESSIVE ->

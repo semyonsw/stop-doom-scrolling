@@ -105,10 +105,11 @@ class DoomAccessibilityService : AccessibilityService() {
 
     private fun evaluate(packageName: String, now: Long) {
         val settings = container.settings.current
-        if (settings.maintenanceActiveAt(now)) {
+        if (!settings.blockingActiveAt(now)) {
             clearActive()
-            // Maintenance is the one case where a block screen already on show is
-            // wrong, so this is the only path that takes it down early.
+            // Being switched off - by the master switch or by maintenance - is the one
+            // case where a block screen already on show is wrong, so this is the only
+            // path that takes it down early.
             main.post { container.overlay.hideIfShowing() }
             return
         }
